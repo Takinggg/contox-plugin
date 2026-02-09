@@ -16,7 +16,7 @@
         "name": "Contox",
         "email": "contact@contox.dev"
       },
-      "source": ".",
+      "source": "./",
       "category": "productivity"
     }
   ]
