@@ -1,0 +1,15 @@
+{
+  "name": "contox",
+  "owner": {
+    "name": "Contox",
+    "email": "contact@contox.dev"
+  },
+  "plugins": [
+    {
+      "name": "contox",
+      "source": ".",
+      "description": "Persistent AI project memory — give Claude context that survives across sessions. Load, search, save, and manage project knowledge directly from Claude Code.",
+      "version": "1.0.0"
+    }
+  ]
+}

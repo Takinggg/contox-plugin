@@ -1,0 +1,13 @@
+{
+  "name": "contox-claude-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Contox plugin for Claude Code — persistent AI project memory",
+  "scripts": {
+    "build": "esbuild ../mcp-server/src/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=server/index.js --minify",
+    "build:dev": "esbuild ../mcp-server/src/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=server/index.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.0"
+  }
+}

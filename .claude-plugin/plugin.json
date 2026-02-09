@@ -1,0 +1,13 @@
+{
+  "name": "contox",
+  "description": "Persistent AI project memory — give Claude context that survives across sessions. Create, search, update, and organize project knowledge automatically.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Contox",
+    "email": "hello@contox.dev"
+  },
+  "homepage": "https://contox.dev",
+  "repository": "https://github.com/Takinggg/contox-plugin",
+  "license": "MIT",
+  "keywords": ["memory", "context", "project", "knowledge", "persistence", "sessions"]
+}
