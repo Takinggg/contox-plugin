@@ -1,8 +1,8 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "contox",
-  "version": "1.0.0",
-  "description": "Contox plugins for Claude Code",
+  "version": "1.1.0",
+  "description": "Contox plugin for Claude Code — Brain V5.3",
   "owner": {
     "name": "Contox",
     "email": "contact@contox.dev"
@@ -10,8 +10,8 @@
   "plugins": [
     {
       "name": "contox",
-      "description": "Persistent AI project memory — give Claude context that survives across sessions. Load, search, save, and manage project knowledge directly from Claude Code.",
-      "version": "1.0.0",
+      "description": "Persistent AI project memory with Brain V5.3 — hierarchical knowledge tree, state machine, context links, entries timeline, and compaction. 15 tools for full brain management from Claude Code.",
+      "version": "1.1.0",
       "author": {
         "name": "Contox",
         "email": "contact@contox.dev"

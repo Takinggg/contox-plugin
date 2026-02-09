@@ -1,7 +1,7 @@
 {
   "name": "contox",
-  "description": "Persistent AI project memory — give Claude context that survives across sessions. Create, search, update, and organize project knowledge automatically.",
-  "version": "1.0.0",
+  "description": "Persistent AI project memory with Brain V5.3 — hierarchical knowledge tree, state machine, context links, entries timeline, and compaction. 15 tools for full brain management from Claude Code.",
+  "version": "1.1.0",
   "author": {
     "name": "Contox",
     "email": "hello@contox.dev"

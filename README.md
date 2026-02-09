@@ -1,6 +1,6 @@
 # Contox Plugin for Claude Code
 
-Persistent AI project memory — give Claude context that survives across sessions.
+Persistent AI project memory with Brain V5.3 — hierarchical knowledge tree, state machine, context links, entries timeline, and compaction.
 
 ## What it does
 
@@ -10,6 +10,7 @@ This plugin gives Claude Code persistent memory for your projects:
 - **Search** through stored knowledge during conversations
 - **Save session work** automatically into categorized memory
 - **Manage contexts** — create, update, delete project knowledge
+- **Brain V5.3** — hierarchical tree, state machine (approve/deprecate), context links, entries compaction
 
 ## Installation
 
@@ -23,7 +24,7 @@ This plugin gives Claude Code persistent memory for your projects:
 ### Local development
 
 ```bash
-claude --plugin-dir .
+claude --plugin-dir ./packages/claude-plugin
 ```
 
 ## Setup
@@ -56,7 +57,7 @@ The plugin includes a **context-memory** skill that Claude uses automatically:
 
 ## MCP Tools
 
-The plugin provides 8 MCP tools:
+The plugin provides 15 MCP tools:
 
 | Tool | Description |
 |------|-------------|
@@ -68,17 +69,17 @@ The plugin provides 8 MCP tools:
 | `contox_create_context` | Create a new context |
 | `contox_update_context` | Update an existing context |
 | `contox_delete_context` | Delete a context |
+| `contox_get_tree` | Get hierarchical brain tree for the project |
+| `contox_approve` | Approve or deprecate a context (state machine) |
+| `contox_get_links` | Get links for a context by schemaKey |
+| `contox_add_link` | Create a directed link between two contexts |
+| `contox_compact` | Compact entries for a journal-like context |
 
-## Building (for contributors)
+## Building
 
 ```bash
+cd packages/claude-plugin
 npm run build
 ```
 
-This bundles the MCP server into a single self-contained `server/index.js` file (338KB).
-
-## Links
-
-- [Contox website](https://contox.dev)
-- [Plugin documentation](https://contox.dev/plugins/claude-code)
-- [Main repository](https://github.com/Takinggg/contox) (private)
+This bundles the MCP server into a single self-contained `server/index.js` file (~360KB).
