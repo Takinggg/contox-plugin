@@ -1,6 +1,6 @@
 # Contox Plugin for Claude Code
 
-Persistent AI project memory with Brain V5.3 — hierarchical knowledge tree, state machine, context links, entries timeline, and compaction.
+Persistent AI project memory with Brain V5.3 — hierarchical knowledge tree, state machine, context links, entries timeline, compaction, and codebase scanning.
 
 ## What it does
 
@@ -11,6 +11,7 @@ This plugin gives Claude Code persistent memory for your projects:
 - **Save session work** automatically into categorized memory
 - **Manage contexts** — create, update, delete project knowledge
 - **Brain V5.3** — hierarchical tree, state machine (approve/deprecate), context links, entries compaction
+- **Codebase scanning** — scan project files and push structured sub-contexts to your brain
 
 ## Installation
 
@@ -57,7 +58,7 @@ The plugin includes a **context-memory** skill that Claude uses automatically:
 
 ## MCP Tools
 
-The plugin provides 15 MCP tools:
+The plugin provides 18 MCP tools:
 
 | Tool | Description |
 |------|-------------|
@@ -69,11 +70,16 @@ The plugin provides 15 MCP tools:
 | `contox_create_context` | Create a new context |
 | `contox_update_context` | Update an existing context |
 | `contox_delete_context` | Delete a context |
+| `contox_populate` | Batch-create/update contexts by schemaKey with content-hash dedup |
+| `contox_add_entry` | Add an entry to a journal-like context (event-sourced) |
 | `contox_get_tree` | Get hierarchical brain tree for the project |
 | `contox_approve` | Approve or deprecate a context (state machine) |
 | `contox_get_links` | Get links for a context by schemaKey |
 | `contox_add_link` | Create a directed link between two contexts |
 | `contox_compact` | Compact entries for a journal-like context |
+| `contox_oncall_view` | Get on-call engineering view with alerts and runbooks |
+| `contox_explain_schemakey` | Explain what a schemaKey path means in the brain tree |
+| `contox_scan` | Scan local codebase and push hierarchical sub-contexts to the brain |
 
 ## Building
 
