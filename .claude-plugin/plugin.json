@@ -1,7 +1,7 @@
 {
   "name": "contox",
-  "description": "Persistent AI project memory with Brain V5.3 — hierarchical knowledge tree, state machine, context links, entries timeline, compaction, and codebase scanning. 18 tools for full brain management from Claude Code.",
-  "version": "1.2.0",
+  "description": "Persistent AI project memory with Brain V5.4 — hierarchical knowledge tree, state machine, context links, entries timeline, compaction, codebase scanning, and git-powered auto-save. 19 tools for full brain management from Claude Code.",
+  "version": "1.3.0",
   "author": {
     "name": "Contox",
     "email": "hello@contox.dev"

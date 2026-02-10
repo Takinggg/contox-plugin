@@ -1,6 +1,6 @@
 # Contox Plugin for Claude Code
 
-Persistent AI project memory with Brain V5.3 — hierarchical knowledge tree, state machine, context links, entries timeline, compaction, and codebase scanning.
+Persistent AI project memory with Brain V5.4 — hierarchical knowledge tree, state machine, context links, entries timeline, compaction, codebase scanning, and git-powered auto-save.
 
 ## What it does
 
@@ -10,7 +10,7 @@ This plugin gives Claude Code persistent memory for your projects:
 - **Search** through stored knowledge during conversations
 - **Save session work** automatically into categorized memory
 - **Manage contexts** — create, update, delete project knowledge
-- **Brain V5.3** — hierarchical tree, state machine (approve/deprecate), context links, entries compaction
+- **Brain V5.4** — hierarchical tree, state machine (approve/deprecate), context links, entries compaction
 - **Codebase scanning** — scan project files and push structured sub-contexts to your brain
 
 ## Installation
@@ -58,7 +58,7 @@ The plugin includes a **context-memory** skill that Claude uses automatically:
 
 ## MCP Tools
 
-The plugin provides 18 MCP tools:
+The plugin provides 19 MCP tools:
 
 | Tool | Description |
 |------|-------------|
@@ -80,6 +80,7 @@ The plugin provides 18 MCP tools:
 | `contox_oncall_view` | Get on-call engineering view with alerts and runbooks |
 | `contox_explain_schemakey` | Explain what a schemaKey path means in the brain tree |
 | `contox_scan` | Scan local codebase and push hierarchical sub-contexts to the brain |
+| `contox_git_digest` | Read git commits since last save for incremental session digests |
 
 ## Building
 
@@ -88,4 +89,4 @@ cd packages/claude-plugin
 npm run build
 ```
 
-This bundles the MCP server into a single self-contained `server/index.js` file (~360KB).
+This bundles the MCP server into a single self-contained `server/index.js` file (~400KB).
