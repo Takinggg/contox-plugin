@@ -25,6 +25,28 @@ const AUTO_FLUSH_INTERVAL_MS = 15 * 60 * 1000;
 const MAX_EVENTS_BEFORE_PROMPT = 50;
 const MAX_PAYLOAD_SIZE_BEFORE_PROMPT = 100 * 1024; // 100KB
 
+/** Max diff chars per commit for the enrichment pipeline */
+const MAX_DIFF_CHARS_PER_COMMIT = 2000;
+
+/** Timeout for git diff-tree command (ms) */
+const DIFF_TIMEOUT_MS = 5000;
+
+/** Files to exclude from diff capture (binary, locks, large generated files) */
+const DIFF_EXCLUDE_PATTERNS = [
+  /package-lock\.json$/,
+  /yarn\.lock$/,
+  /pnpm-lock\.yaml$/,
+  /bun\.lockb$/,
+  /\.lock$/,
+  /\.min\.(js|css)$/,
+  /\.map$/,
+  /\.wasm$/,
+  /\.png|\.jpg|\.jpeg|\.gif|\.ico|\.svg$/,
+  /\.woff2?$/,
+  /\.ttf$/,
+  /\.eot$/,
+];
+
 interface CaptureBuffer {
   commits: VsCodeCaptureCommit[];
   filesModified: Set<string>;
@@ -317,6 +339,74 @@ export class GitWatcher implements vscode.Disposable {
     }
   }
 
+  /**
+   * Capture compact diff context for a commit.
+   * Runs `git diff-tree -p -U2` with a hard timeout, strips excluded files,
+   * and truncates to MAX_DIFF_CHARS_PER_COMMIT.
+   */
+  private async captureDiffContext(rootPath: string, sha: string): Promise<string | undefined> {
+    const config = vscode.workspace.getConfiguration('contox');
+    const includeDiffs = config.get<boolean>('capture.includeDiffs', true);
+    if (!includeDiffs) {
+      return undefined;
+    }
+
+    try {
+      const { stdout } = await execFileAsync('git', [
+        'diff-tree', '-p', '-U2', '--no-commit-id', sha,
+      ], { cwd: rootPath, timeout: DIFF_TIMEOUT_MS, maxBuffer: 512 * 1024 });
+
+      if (!stdout || stdout.trim().length === 0) {
+        return undefined;
+      }
+
+      // Filter out excluded file diffs and strip binary diffs
+      const filtered = this.filterExcludedDiffs(stdout);
+      if (!filtered || filtered.length === 0) {
+        return undefined;
+      }
+
+      // Truncate to limit
+      return filtered.length > MAX_DIFF_CHARS_PER_COMMIT
+        ? filtered.slice(0, MAX_DIFF_CHARS_PER_COMMIT)
+        : filtered;
+    } catch {
+      // Timeout or error — not critical, skip diff
+      return undefined;
+    }
+  }
+
+  /**
+   * Filter excluded files from a unified diff output.
+   * Removes diffs for lock files, binaries, and large generated files.
+   */
+  private filterExcludedDiffs(rawDiff: string): string {
+    const sections = rawDiff.split(/^(?=diff --git )/m);
+    const kept: string[] = [];
+
+    for (const section of sections) {
+      if (!section.trim()) { continue; }
+
+      // Extract file path from "diff --git a/path b/path"
+      const headerMatch = section.match(/^diff --git a\/(.+?) b\//);
+      const filePath = headerMatch?.[1] ?? '';
+
+      // Skip if matches exclude patterns
+      if (DIFF_EXCLUDE_PATTERNS.some((pat) => pat.test(filePath))) {
+        continue;
+      }
+
+      // Skip binary diffs
+      if (section.includes('Binary files')) {
+        continue;
+      }
+
+      kept.push(section);
+    }
+
+    return kept.join('');
+  }
+
   private async captureCommitDetails(
     rootPath: string, sha: string, message: string, author: string, timestamp: string,
   ): Promise<void> {
@@ -351,6 +441,9 @@ export class GitWatcher implements vscode.Disposable {
     // Apply exclude patterns to file list
     filesChanged = filesChanged.filter((f) => !this.isExcluded(f));
 
+    // Capture compact diff context (runs in parallel concept — but sequential here for simplicity)
+    const diff = await this.captureDiffContext(rootPath, sha);
+
     const commit: VsCodeCaptureCommit = {
       sha: sha.slice(0, 12),
       message: message.slice(0, 500),
@@ -359,6 +452,7 @@ export class GitWatcher implements vscode.Disposable {
       filesChanged,
       insertions,
       deletions,
+      ...(diff ? { diff } : {}),
     };
 
     this.buffer.commits.push(commit);

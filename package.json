@@ -54,6 +54,16 @@
       {
         "command": "contox.endSession",
         "title": "Contox: End Session & Start New"
+      },
+      {
+        "command": "contox.desync",
+        "title": "Contox: Disconnect (Pause Sync)",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "contox.connect",
+        "title": "Contox: Reconnect (Resume Sync)",
+        "icon": "$(plug)"
       }
     ],
     "viewsContainers": {
@@ -96,6 +106,11 @@
           "items": { "type": "string" },
           "default": ["*.env", "*.key", "*.pem", "*.p12", "*.pfx", "node_modules/**", ".git/**", "dist/**"],
           "description": "File patterns to exclude from capture"
+        },
+        "contox.capture.includeDiffs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include compact code diffs in captured commits (max 2KB per commit). Gives AI much better context for enrichment."
         },
         "contox.capture.anonymizeDiffs": {
           "type": "boolean",

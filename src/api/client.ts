@@ -440,6 +440,8 @@ export interface VsCodeCaptureCommit {
   filesChanged: string[];
   insertions: number;
   deletions: number;
+  /** Compact diff context (max 2000 chars). Populated when contox.capture.includeDiffs is true. */
+  diff?: string;
 }
 
 export interface VsCodeCaptureEvent {

@@ -103,6 +103,16 @@ export class StatusBarManager implements vscode.Disposable {
    * Show active capture session with live timer and event count.
    * Clicking the status bar triggers a manual flush.
    */
+  /**
+   * Show disconnected / desynced state.
+   */
+  setDisconnected(): void {
+    this.item.text = '$(debug-disconnect) Contox: Disconnected';
+    this.item.tooltip = 'Sync paused — click to reconnect';
+    this.item.command = 'contox.connect';
+    this.item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+  }
+
   setCapturing(durationSecs: number, eventCount: number): void {
     const mins = Math.floor(durationSecs / 60);
     const secs = durationSecs % 60;

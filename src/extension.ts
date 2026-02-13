@@ -15,6 +15,7 @@ import { registerSetupWizardCommand, openSetupWizard } from './commands/setup-wi
 import { registerResetCommand } from './commands/reset';
 import { registerLoadMemoryCommand, loadMemorySilent } from './commands/load-memory';
 import { registerEndSessionCommand } from './commands/end-session';
+import { registerDesyncCommand, registerConnectCommand, isDesynced } from './commands/desync';
 
 /* ═══════════════════════════════════════════════════════════════════════════════
  * Workspace configuration stored in .contox.json
@@ -87,6 +88,10 @@ class ContoxUriHandler implements vscode.UriHandler {
 
     if (uri.path === '/setup' && token) {
       await this.handleSetup(token, teamId, projectId, projectName, hmacSecret);
+    } else if (uri.path === '/desync') {
+      await vscode.commands.executeCommand('contox.desync');
+    } else if (uri.path === '/connect') {
+      await vscode.commands.executeCommand('contox.connect');
     }
   }
 
@@ -162,7 +167,7 @@ class ContoxUriHandler implements vscode.UriHandler {
         projectId,
       };
       if (hmacSecret) { rcConfig['hmacSecret'] = hmacSecret; }
-      fs.writeFileSync(rcPath, JSON.stringify(rcConfig, null, 2) + '\n', 'utf-8');
+      fs.writeFileSync(rcPath, JSON.stringify(rcConfig, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
     } catch {
       // Non-critical
     }
@@ -251,6 +256,11 @@ export function activate(context: vscode.ExtensionContext): void {
     registerResetCommand(client),
     registerLoadMemoryCommand(client),
     registerEndSessionCommand(gitWatcher),
+    registerDesyncCommand(statusBar, sessionWatcher, gitWatcher, context),
+    registerConnectCommand(client, statusBar, sessionWatcher, gitWatcher, context, () => {
+      const cfg = getWorkspaceConfig();
+      return cfg?.projectId ?? null;
+    }),
     vscode.commands.registerCommand('contox.flushCapture', () => {
       void gitWatcher.flush();
     }),
@@ -272,9 +282,15 @@ export function activate(context: vscode.ExtensionContext): void {
 
     const wsFolders = vscode.workspace.workspaceFolders;
     if (key && config && wsFolders && wsFolders.length > 0) {
-      // Already configured — auto-sync + load memory + start watchers
+      // Already configured — auto-sync + load memory
       await vscode.commands.executeCommand('contox.sync');
       void loadMemorySilent(client, wsFolders[0]!.uri.fsPath, config.projectId);
+
+      // If user previously desynced, stay disconnected
+      if (isDesynced(context)) {
+        statusBar.setDisconnected();
+        return;
+      }
 
       // Ensure HMAC secret is available before starting capture
       const hmac = await context.secrets.get('contox-hmac-secret');
