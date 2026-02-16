@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install extension dependencies
+        run: npm install
+
+      - name: Install MCP server dependencies
+        working-directory: packages/mcp-server
+        run: npm install
+
+      - name: Install CLI dependencies
+        working-directory: packages/cli
+        run: npm install
+
+      - name: Build extension + MCP bundle
+        run: npm run build
+
+      - name: Build MCP server
+        working-directory: packages/mcp-server
+        run: npm run build
+
+      - name: Build CLI
+        working-directory: packages/cli
+        run: npm run build
+
+      - name: Verify outputs
+        run: |
+          test -f dist/extension.js
+          test -f dist/mcp-server.cjs
+          test -f packages/mcp-server/dist/index.js
+          test -f packages/cli/dist/index.js
+          echo "All builds OK"
+
+      - name: Package VSIX
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npx @vscode/vsce package --no-dependencies
+
+      - name: Upload VSIX artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: contox-vscode-extension
+          path: '*.vsix'
+
+  publish-npm:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Install & build MCP server
+        working-directory: packages/mcp-server
+        run: npm install && npm run build
+
+      - name: Install & build CLI
+        working-directory: packages/cli
+        run: npm install && npm run build
+
+      - name: Publish contox-mcp
+        working-directory: packages/mcp-server
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish contox-cli
+        working-directory: packages/cli
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

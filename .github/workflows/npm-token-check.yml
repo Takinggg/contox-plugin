@@ -1,0 +1,55 @@
+name: NPM Token Health Check
+
+on:
+  schedule:
+    # Every Monday at 9am UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+jobs:
+  check-token:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test NPM token
+        id: check
+        continue-on-error: true
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+          npm whoami 2>/dev/null
+          if [ $? -ne 0 ]; then
+            echo "expired=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "expired=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create issue if token expired
+        if: steps.check.outputs.expired == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'npm-token',
+              state: 'open',
+            });
+            if (existing.data.length > 0) return;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🔑 NPM token expired — renew to re-enable CI publish',
+              labels: ['npm-token'],
+              body: [
+                '## NPM token has expired',
+                '',
+                'The `NPM_TOKEN` secret used for publishing `contox-mcp` and `contox-cli` is no longer valid.',
+                '',
+                '### How to fix',
+                '1. Go to https://www.npmjs.com/settings/tokens/create',
+                '2. Create a **Granular Access Token** with read-write permissions',
+                '3. Set expiration to **90 days**',
+                '4. Update the secret: **Settings → Secrets → Actions → NPM_TOKEN**',
+                '5. Close this issue',
+              ].join('\n'),
+            });
