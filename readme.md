@@ -80,12 +80,43 @@ The MCP server is bundled inside the extension — no separate install needed. I
 - Node.js 18+ (for MCP server)
 - A free account at [contox.dev](https://contox.dev)
 
-## Privacy
+## Privacy & Data Collection
 
-- Code diffs are truncated (max 2KB) and can be anonymized in settings
-- Sensitive files (`.env`, `.key`, `.pem`) are excluded by default
-- HMAC-SHA256 signed requests for tamper protection
-- All data stored in EU (Frankfurt) region
+This extension collects and transmits the following data to the Contox API (`contox.dev`):
+
+### What data is collected
+- **Git commit metadata**: commit SHA, message, author name, timestamp, list of files changed
+- **Code diffs**: truncated to max 2KB per commit (can be fully disabled or anonymized in settings)
+- **File save events**: file paths of saved files (no file contents)
+- **Project metadata**: project name, workspace root path
+- **Session data**: session start/end times, event counts
+
+### What is NOT collected
+- Full source code or file contents (only truncated diffs)
+- Files matching exclude patterns: `.env`, `.key`, `.pem`, `.p12`, `.pfx`, `node_modules/`, `.git/`, `dist/`
+- Any data from outside the connected workspace
+
+### Purpose
+Data is used to build a persistent project memory that AI tools can query via MCP. This includes generating context summaries, semantic search indexes, and session enrichment.
+
+### Data sharing
+- Data is transmitted to `contox.dev` (Contox API) over HTTPS
+- Requests are signed with HMAC-SHA256 for tamper protection
+- Data is accessible only to your team members (role-based access control)
+- Data is **not** shared with third parties, sold, or used for advertising
+
+### Storage & retention
+- All data is stored in the **EU (Frankfurt region)** on Appwrite Cloud infrastructure
+- Data is retained for the lifetime of your account
+- You can delete individual sessions, contexts, or your entire project at any time from the dashboard
+- Account deletion removes all associated data
+
+### User controls
+- **`contox.capture.enabled`**: Disable all event capture (default: enabled)
+- **`contox.capture.includeDiffs`**: Disable code diff capture (default: enabled)
+- **`contox.capture.anonymizeDiffs`**: Strip code content, keep only file paths and stats (default: disabled)
+- **`contox.capture.excludePatterns`**: Customize file exclusion patterns
+- **`Contox: Disconnect`** command: Pause all sync without removing configuration
 
 ## Links
 
