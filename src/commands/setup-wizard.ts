@@ -5,6 +5,7 @@ import * as os from 'os';
 import { ContoxClient, ContoxProject, ContoxTeam } from '../api/client';
 import { ContextTreeProvider } from '../providers/context-tree';
 import { StatusBarManager } from '../providers/status-bar';
+import { getMcpServerPath } from '../lib/mcp-deployer';
 
 /* ═══════════════════════════════════════════════════════════════════════════════
  * Setup Wizard — Guided onboarding webview panel
@@ -227,40 +228,38 @@ async function handleMessage(
       // Configure Claude (MCP server)
       if (tools.includes('claude')) {
         try {
-          const configured = configureClaude(apiKey, apiUrl, teamId, projectId, rootPath, hmacSecret);
-          if (configured) {
-            results.push('Claude MCP server configured');
-          }
+          configureClaude(apiKey, apiUrl, teamId, projectId, rootPath, hmacSecret, extensionContext);
+          results.push('Claude MCP server configured');
         } catch (err) {
           results.push(`Claude: ${String(err)}`);
         }
       }
 
-      // Configure Cursor
+      // Configure Cursor (MCP server)
       if (tools.includes('cursor')) {
         try {
-          configureCursor(rootPath);
-          results.push('Cursor rules configured');
+          configureCursor(apiKey, apiUrl, teamId, projectId, rootPath, hmacSecret, extensionContext);
+          results.push('Cursor MCP server configured');
         } catch (err) {
           results.push(`Cursor: ${String(err)}`);
         }
       }
 
-      // Configure Copilot
+      // Configure Copilot (MCP server via .vscode/mcp.json)
       if (tools.includes('copilot')) {
         try {
-          configureCopilot(rootPath);
-          results.push('GitHub Copilot instructions configured');
+          configureCopilot(apiKey, apiUrl, teamId, projectId, rootPath, hmacSecret, extensionContext);
+          results.push('Copilot MCP server configured');
         } catch (err) {
           results.push(`Copilot: ${String(err)}`);
         }
       }
 
-      // Configure Windsurf
+      // Configure Windsurf (MCP server via global config)
       if (tools.includes('windsurf')) {
         try {
-          configureWindsurf(rootPath);
-          results.push('Windsurf rules configured');
+          configureWindsurf(apiKey, apiUrl, teamId, extensionContext);
+          results.push('Windsurf MCP server configured');
         } catch (err) {
           results.push(`Windsurf: ${String(err)}`);
         }
@@ -309,112 +308,148 @@ async function handleMessage(
 
 /* ── AI Tool Configuration Helpers ──────────────────────────────────────── */
 
+/**
+ * Configure MCP for all AI tools at once. Called by the deep link handler.
+ */
+export function configureAllMcp(
+  apiKey: string,
+  apiUrl: string,
+  teamId: string,
+  projectId: string,
+  rootPath: string,
+  hmacSecret: string | undefined,
+  extensionContext: vscode.ExtensionContext,
+): void {
+  configureClaude(apiKey, apiUrl, teamId, projectId, rootPath, hmacSecret, extensionContext);
+  configureCursor(apiKey, apiUrl, teamId, projectId, rootPath, hmacSecret, extensionContext);
+  configureCopilot(apiKey, apiUrl, teamId, projectId, rootPath, hmacSecret, extensionContext);
+  configureWindsurf(apiKey, apiUrl, teamId, extensionContext);
+}
+
+/* ── Internal helpers ──────────────────────────────────────────────────── */
+
+function buildMcpEnv(
+  apiKey: string,
+  apiUrl: string,
+  teamId: string,
+  projectId?: string,
+  hmacSecret?: string,
+): Record<string, string> {
+  const env: Record<string, string> = {
+    CONTOX_API_KEY: apiKey,
+    CONTOX_API_URL: apiUrl,
+    CONTOX_TEAM_ID: teamId,
+  };
+  if (projectId) { env['CONTOX_PROJECT_ID'] = projectId; }
+  if (hmacSecret) { env['CONTOX_HMAC_SECRET'] = hmacSecret; }
+  return env;
+}
+
+/** Merge a contox MCP server into an existing config without overwriting other servers. */
+function mergeServerConfig(
+  configPath: string,
+  serverKey: string,
+  serverConfig: Record<string, unknown>,
+  serversField: string = 'mcpServers',
+): void {
+  let existing: Record<string, unknown> = {};
+  try {
+    existing = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as Record<string, unknown>;
+  } catch {
+    // File doesn't exist or invalid JSON — start fresh
+  }
+
+  const existingServers = (existing[serversField] ?? {}) as Record<string, unknown>;
+  const merged = {
+    ...existing,
+    [serversField]: { ...existingServers, [serverKey]: serverConfig },
+  };
+  fs.writeFileSync(configPath, JSON.stringify(merged, null, 2) + '\n');
+}
+
 function configureClaude(
   apiKey: string,
   apiUrl: string,
   teamId: string,
   projectId: string,
   rootPath: string,
-  hmacSecret?: string,
-): boolean {
-  // Write .mcp.json in workspace root for Claude Code
-  const env: Record<string, string> = {
-    CONTOX_API_KEY: apiKey,
-    CONTOX_API_URL: apiUrl,
-    CONTOX_TEAM_ID: teamId,
-    CONTOX_PROJECT_ID: projectId,
-  };
-  if (hmacSecret) {
-    env['CONTOX_HMAC_SECRET'] = hmacSecret;
-  }
+  hmacSecret: string | undefined,
+  extensionContext: vscode.ExtensionContext,
+): void {
+  const mcpServerPath = getMcpServerPath(extensionContext);
+  const env = buildMcpEnv(apiKey, apiUrl, teamId, projectId, hmacSecret);
 
-  const claudeConfig = {
-    mcpServers: {
-      contox: {
-        command: 'node',
-        args: ['packages/mcp-server/dist/index.js'],
-        env,
-      },
-    },
-  };
-
-  const claudePath = path.join(rootPath, '.mcp.json');
-  fs.writeFileSync(claudePath, JSON.stringify(claudeConfig, null, 2) + '\n');
-  return true;
+  mergeServerConfig(
+    path.join(rootPath, '.mcp.json'),
+    'contox',
+    { command: 'node', args: [mcpServerPath], env },
+  );
 }
 
-function configureCursor(rootPath: string): void {
-  const rules = `# Contox AI Memory
+function configureCursor(
+  apiKey: string,
+  apiUrl: string,
+  teamId: string,
+  projectId: string,
+  rootPath: string,
+  hmacSecret: string | undefined,
+  extensionContext: vscode.ExtensionContext,
+): void {
+  const cursorDir = path.join(rootPath, '.cursor');
+  if (!fs.existsSync(cursorDir)) { fs.mkdirSync(cursorDir, { recursive: true }); }
 
-At the START of each session, run this command to load project memory:
-\`\`\`
-contox memory
-\`\`\`
+  const mcpServerPath = getMcpServerPath(extensionContext);
+  const env = buildMcpEnv(apiKey, apiUrl, teamId, projectId, hmacSecret);
 
-At the END of each session, save what you did:
-\`\`\`
-contox save "Brief summary of what was accomplished"
-\`\`\`
-
-For structured saves with categories (architecture, conventions, implementation, decisions, bugs, todo):
-\`\`\`
-echo '{"summary":"...","changes":[{"category":"implementation","title":"...","content":"..."}]}' | contox save --json
-\`\`\`
-`;
-
-  const cursorPath = path.join(rootPath, '.cursorrules');
-  // Append to existing rules if present
-  if (fs.existsSync(cursorPath)) {
-    const existing = fs.readFileSync(cursorPath, 'utf-8');
-    if (!existing.includes('contox memory')) {
-      fs.writeFileSync(cursorPath, existing + '\n\n' + rules);
-    }
-  } else {
-    fs.writeFileSync(cursorPath, rules);
-  }
+  mergeServerConfig(
+    path.join(cursorDir, 'mcp.json'),
+    'contox',
+    { command: 'node', args: [mcpServerPath], env },
+  );
 }
 
-function configureCopilot(rootPath: string): void {
-  const instructions = `# Contox AI Memory
+function configureCopilot(
+  apiKey: string,
+  apiUrl: string,
+  teamId: string,
+  projectId: string,
+  rootPath: string,
+  hmacSecret: string | undefined,
+  extensionContext: vscode.ExtensionContext,
+): void {
+  const vscodeDir = path.join(rootPath, '.vscode');
+  if (!fs.existsSync(vscodeDir)) { fs.mkdirSync(vscodeDir, { recursive: true }); }
 
-At the START of each session, run: \`contox memory\`
-At the END of each session, run: \`contox save "Brief summary"\`
+  const mcpServerPath = getMcpServerPath(extensionContext);
+  const env = buildMcpEnv(apiKey, apiUrl, teamId, projectId, hmacSecret);
 
-For structured saves: \`echo '{"summary":"...","changes":[...]}' | contox save --json\`
-Categories: architecture, conventions, implementation, decisions, bugs, todo
-`;
-
-  const ghDir = path.join(rootPath, '.github');
-  if (!fs.existsSync(ghDir)) {
-    fs.mkdirSync(ghDir, { recursive: true });
-  }
-
-  const instructionsPath = path.join(ghDir, 'copilot-instructions.md');
-  if (fs.existsSync(instructionsPath)) {
-    const existing = fs.readFileSync(instructionsPath, 'utf-8');
-    if (!existing.includes('contox memory')) {
-      fs.writeFileSync(instructionsPath, existing + '\n\n' + instructions);
-    }
-  } else {
-    fs.writeFileSync(instructionsPath, instructions);
-  }
+  // VS Code Copilot uses "servers" key (not "mcpServers") and requires type: 'stdio'
+  mergeServerConfig(
+    path.join(vscodeDir, 'mcp.json'),
+    'contox',
+    { type: 'stdio', command: 'node', args: [mcpServerPath], env },
+    'servers',
+  );
 }
 
-function configureWindsurf(rootPath: string): void {
-  const rules = `# Contox AI Memory
-At the START of each session, run: \`contox memory\`
-At the END of each session, run: \`contox save "Brief summary"\`
-`;
+function configureWindsurf(
+  apiKey: string,
+  apiUrl: string,
+  teamId: string,
+  extensionContext: vscode.ExtensionContext,
+): void {
+  // Windsurf uses a global config — no CONTOX_PROJECT_ID (resolved from .contox.json in cwd)
+  const windsurfDir = path.join(os.homedir(), '.codeium', 'windsurf');
+  if (!fs.existsSync(windsurfDir)) { fs.mkdirSync(windsurfDir, { recursive: true }); }
 
-  const windsurfPath = path.join(rootPath, '.windsurfrules');
-  if (fs.existsSync(windsurfPath)) {
-    const existing = fs.readFileSync(windsurfPath, 'utf-8');
-    if (!existing.includes('contox memory')) {
-      fs.writeFileSync(windsurfPath, existing + '\n\n' + rules);
-    }
-  } else {
-    fs.writeFileSync(windsurfPath, rules);
-  }
+  const mcpServerPath = getMcpServerPath(extensionContext);
+  const env = buildMcpEnv(apiKey, apiUrl, teamId);
+
+  mergeServerConfig(
+    path.join(windsurfDir, 'mcp_config.json'),
+    'contox',
+    { command: 'node', args: [mcpServerPath], env },
+  );
 }
 
 /* ── Webview HTML ───────────────────────────────────────────────────────── */

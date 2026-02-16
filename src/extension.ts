@@ -16,6 +16,9 @@ import { registerResetCommand } from './commands/reset';
 import { registerLoadMemoryCommand, loadMemorySilent } from './commands/load-memory';
 import { registerEndSessionCommand } from './commands/end-session';
 import { registerDesyncCommand, registerConnectCommand, isDesynced } from './commands/desync';
+import { ContextInjector } from './providers/context-injector';
+import { deployMcpServer } from './lib/mcp-deployer';
+import { configureAllMcp } from './commands/setup-wizard';
 
 /* ═══════════════════════════════════════════════════════════════════════════════
  * Workspace configuration stored in .contox.json
@@ -76,6 +79,7 @@ class ContoxUriHandler implements vscode.UriHandler {
     private readonly sessionWatcher: SessionWatcher,
     private readonly gitWatcher: GitWatcher,
     private readonly context: vscode.ExtensionContext,
+    private readonly mcpReady: Promise<string | void>,
   ) {}
 
   async handleUri(uri: vscode.Uri): Promise<void> {
@@ -172,6 +176,15 @@ class ContoxUriHandler implements vscode.UriHandler {
       // Non-critical
     }
 
+    // Configure MCP server for all AI tools (Claude, Cursor, Copilot, Windsurf)
+    const apiUrl = vscode.workspace.getConfiguration('contox').get<string>('apiUrl', 'https://contox.dev');
+    try {
+      await this.mcpReady;
+      configureAllMcp(token, apiUrl, teamId, projectId, rootPath, hmacSecret ?? undefined, this.context);
+    } catch (err) {
+      console.error('Contox: Failed to configure MCP:', err);
+    }
+
     // Start watchers
     this.sessionWatcher.start(projectId);
     this.gitWatcher.start(projectId);
@@ -222,11 +235,17 @@ class ContoxUriHandler implements vscode.UriHandler {
  * ═══════════════════════════════════════════════════════════════════════════════ */
 
 export function activate(context: vscode.ExtensionContext): void {
+  // Deploy MCP server to globalStorage (fire-and-forget, awaited before setup/deep link)
+  const mcpReady = deployMcpServer(context).catch((err) => {
+    console.error('Contox: Failed to deploy MCP server:', err);
+  });
+
   const client = new ContoxClient(context.secrets);
   const treeProvider = new ContextTreeProvider(client);
   const statusBar = new StatusBarManager();
   const sessionWatcher = new SessionWatcher(client, statusBar);
   const gitWatcher = new GitWatcher(client, statusBar, context.secrets);
+  const contextInjector = new ContextInjector(client);
   sessionWatcher.setGitWatcher(gitWatcher);
 
   // Register the tree view in the activity-bar panel
@@ -239,7 +258,7 @@ export function activate(context: vscode.ExtensionContext): void {
   let handledByUri = false;
 
   // Register URI handler for deep links from dashboard
-  const uriHandler = new ContoxUriHandler(client, treeProvider, statusBar, sessionWatcher, gitWatcher, context);
+  const uriHandler = new ContoxUriHandler(client, treeProvider, statusBar, sessionWatcher, gitWatcher, context, mcpReady);
   const originalHandleUri = uriHandler.handleUri.bind(uriHandler);
   uriHandler.handleUri = async (uri: vscode.Uri): Promise<void> => {
     handledByUri = true;
@@ -268,13 +287,17 @@ export function activate(context: vscode.ExtensionContext): void {
     statusBar,
     sessionWatcher,
     gitWatcher,
+    contextInjector,
     vscode.window.registerUriHandler(uriHandler),
   );
 
   // Auto-open setup wizard if not configured, otherwise auto-sync + start watcher.
   // Small delay to let the URI handler run first when activated by onUri.
   void (async () => {
-    await new Promise((r) => { setTimeout(r, 500); });
+    await Promise.all([
+      new Promise((r) => { setTimeout(r, 500); }),
+      mcpReady,
+    ]);
     if (handledByUri) { return; }
 
     const key = await client.getApiKey();
@@ -307,6 +330,36 @@ export function activate(context: vscode.ExtensionContext): void {
 
       sessionWatcher.start(config.projectId);
       gitWatcher.start(config.projectId);
+      contextInjector.start(config.projectId);
+
+      // Check if MCP is configured for AI tools — prompt if not
+      const rootPath = wsFolders[0]!.uri.fsPath;
+      const mcpConfigPath = path.join(rootPath, '.mcp.json');
+      let needsMcpSetup = true;
+      try {
+        const raw = fs.readFileSync(mcpConfigPath, 'utf-8');
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const servers = parsed['mcpServers'] as Record<string, unknown> | undefined;
+        const contox = servers?.['contox'] as Record<string, unknown> | undefined;
+        const args = contox?.['args'] as string[] | undefined;
+        // Already configured with globalStorage path (not old relative path)
+        if (args?.[0] && !args[0].includes('packages/mcp-server')) {
+          needsMcpSetup = false;
+        }
+      } catch {
+        // .mcp.json doesn't exist or is invalid
+      }
+
+      if (needsMcpSetup) {
+        const action = await vscode.window.showInformationMessage(
+          'Contox: Configure MCP server for your AI tools (Claude, Cursor, Copilot, Windsurf)?',
+          'Configure',
+          'Later',
+        );
+        if (action === 'Configure') {
+          openSetupWizard(client, treeProvider, statusBar, context);
+        }
+      }
     } else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
       // Workspace open but not configured — show a subtle prompt
       const action = await vscode.window.showInformationMessage(

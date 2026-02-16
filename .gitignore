@@ -1,2 +1,5 @@
 node_modules/
+dist/
 *.vsix
+.env
+*.tgz

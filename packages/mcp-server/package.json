@@ -1,0 +1,43 @@
+{
+  "name": "contox-mcp",
+  "version": "1.0.0",
+  "description": "Contox MCP server — give Claude persistent context memory",
+  "type": "module",
+  "bin": {
+    "contox-mcp": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "mcp",
+    "contox",
+    "claude",
+    "cursor",
+    "copilot",
+    "windsurf",
+    "context",
+    "memory",
+    "ai"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Takinggg/contox-plugin.git"
+  },
+  "homepage": "https://contox.dev",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "ulid": "^3.0.2",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}

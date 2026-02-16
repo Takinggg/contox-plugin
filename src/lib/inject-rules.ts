@@ -30,6 +30,11 @@ conventions, implementation history, bug fixes, and todos from all previous sess
 - This is your primary source of truth about this project
 - Do NOT ask questions that are already answered in the memory
 
+## Active file context
+- \`.contox/context.md\` contains focused context relevant to your current file
+- This file updates automatically as you navigate the codebase
+- Use it for file-specific decisions, patterns, and conventions
+
 ## Save your work at session end
 - Run: \`contox save "Brief summary of what you did"\`
 - For structured saves: \`echo '{"summary":"...","changes":[{"category":"implementation","title":"...","content":"..."}]}' | contox save --json\`

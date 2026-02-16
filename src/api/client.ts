@@ -54,6 +54,23 @@ export interface ContoxProject {
   updatedAt: string;
 }
 
+export interface SearchResult {
+  itemId: string;
+  type: string;
+  title: string;
+  facts: string;
+  schemaKey: string;
+  similarity: number;
+  confidence: number;
+  files: string[];
+}
+
+export interface SearchResponse {
+  results: SearchResult[];
+  query: string;
+  totalCandidates: number;
+}
+
 export interface ContoxSyncResult {
   id: string;
   name: string;
@@ -267,6 +284,20 @@ export class ContoxClient {
   async getBrain(projectId: string): Promise<ApiResponse<BrainResponse>> {
     return this.request<BrainResponse>(
       `/v2/brain?projectId=${encodeURIComponent(projectId)}`,
+    );
+  }
+
+  /**
+   * Semantic search for relevant memory items.
+   * GET /api/v2/search?projectId=xxx&q=...&limit=10&minSimilarity=0.5
+   */
+  async searchMemory(
+    projectId: string,
+    query: string,
+    limit = 10,
+  ): Promise<ApiResponse<SearchResponse>> {
+    return this.request<SearchResponse>(
+      `/v2/search?projectId=${encodeURIComponent(projectId)}&q=${encodeURIComponent(query)}&limit=${limit}&minSimilarity=0.5`,
     );
   }
 

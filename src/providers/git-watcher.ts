@@ -26,7 +26,7 @@ const MAX_EVENTS_BEFORE_PROMPT = 50;
 const MAX_PAYLOAD_SIZE_BEFORE_PROMPT = 100 * 1024; // 100KB
 
 /** Max diff chars per commit for the enrichment pipeline */
-const MAX_DIFF_CHARS_PER_COMMIT = 2000;
+const MAX_DIFF_CHARS_PER_COMMIT = 3000;
 
 /** Timeout for git diff-tree command (ms) */
 const DIFF_TIMEOUT_MS = 5000;
@@ -189,11 +189,14 @@ export class GitWatcher implements vscode.Disposable {
   private watchGitState(): void {
     this.gitStateDisposable?.dispose();
 
+    // Always start polling as a safety net — the git extension's onDidChange
+    // event doesn't always fire for external CLI commits (especially on Windows)
+    this.startGitPolling();
+
     try {
       const gitExtension = vscode.extensions.getExtension('vscode.git');
       if (!gitExtension) {
-        console.warn('[GitWatcher] Git extension not found — falling back to polling');
-        this.startGitPolling();
+        console.warn('[GitWatcher] Git extension not found — using polling only');
         return;
       }
 
@@ -202,8 +205,7 @@ export class GitWatcher implements vscode.Disposable {
         : null;
 
       if (!git || !git.repositories || git.repositories.length === 0) {
-        console.warn('[GitWatcher] No git repositories found — falling back to polling');
-        this.startGitPolling();
+        console.warn('[GitWatcher] No git repositories found — using polling only');
         return;
       }
 
@@ -211,12 +213,14 @@ export class GitWatcher implements vscode.Disposable {
       this.lastKnownHead = repo.state?.HEAD?.commit ?? null;
 
       // Watch for state changes (new commits, branch switches, etc.)
+      // This provides instant detection when it works; polling is the safety net
       this.gitStateDisposable = repo.state.onDidChange(() => {
         void this.onGitStateChanged(repo);
       });
+
+      console.log('[GitWatcher] Git extension connected + polling safety net active');
     } catch {
-      console.warn('[GitWatcher] Failed to access git extension — falling back to polling');
-      this.startGitPolling();
+      console.warn('[GitWatcher] Failed to access git extension — using polling only');
     }
   }
 
@@ -269,25 +273,36 @@ export class GitWatcher implements vscode.Disposable {
   private gitPollTimer: ReturnType<typeof setInterval> | undefined;
 
   private startGitPolling(): void {
-    // Fallback: poll git log every 15 seconds
+    if (this.gitPollTimer) { return; } // Already polling
+    // Poll git HEAD every 5 seconds for reliable commit detection
+    console.log('[GitWatcher] Starting git HEAD polling (5s interval)');
+    void this.pollGitHead(); // Immediate first poll
     this.gitPollTimer = setInterval(() => {
       void this.pollGitHead();
-    }, 15_000);
+    }, 5_000);
   }
 
   private async pollGitHead(): Promise<void> {
     if (this.disposed || !this.buffer) { return; }
 
     const rootPath = this.getWorkspaceRoot();
-    if (!rootPath) { return; }
+    if (!rootPath) {
+      console.warn('[GitWatcher] pollGitHead: no workspace root');
+      return;
+    }
 
     try {
       const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: rootPath });
       const currentHead = stdout.trim();
 
+      if (!this.lastKnownHead) {
+        console.log(`[GitWatcher] pollGitHead: initial HEAD = ${currentHead.slice(0, 8)}`);
+      }
+
       if (this.lastKnownHead && currentHead !== this.lastKnownHead) {
+        console.log(`[GitWatcher] Commit detected (poll): ${this.lastKnownHead.slice(0, 8)} → ${currentHead.slice(0, 8)}`);
         await this.captureNewCommits(this.lastKnownHead, currentHead);
-        console.log('[GitWatcher] Commit detected (poll) — auto-flushing');
+        console.log('[GitWatcher] Commit captured — auto-flushing');
         await this.flush();
       }
 
@@ -353,7 +368,7 @@ export class GitWatcher implements vscode.Disposable {
 
     try {
       const { stdout } = await execFileAsync('git', [
-        'diff-tree', '-p', '-U2', '--no-commit-id', sha,
+        'diff-tree', '-p', '-U4', '--no-commit-id', sha,
       ], { cwd: rootPath, timeout: DIFF_TIMEOUT_MS, maxBuffer: 512 * 1024 });
 
       if (!stdout || stdout.trim().length === 0) {

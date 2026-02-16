@@ -2,17 +2,22 @@
   "name": "contox-vscode",
   "displayName": "Contox",
   "description": "AI context management — browse, sync, and manage your Contox contexts from VS Code",
-  "version": "1.3.0",
+  "version": "1.0.0",
   "publisher": "contox",
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
-  "activationEvents": ["onUri", "workspaceContains:.contox.json"],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onUri",
+    "workspaceContains:.contox.json"
+  ],
   "main": "./dist/extension.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Takinggg/contox"
+    "url": "https://github.com/Takinggg/contox-plugin"
   },
   "license": "MIT",
   "contributes": {
@@ -103,8 +108,19 @@
         },
         "contox.capture.excludePatterns": {
           "type": "array",
-          "items": { "type": "string" },
-          "default": ["*.env", "*.key", "*.pem", "*.p12", "*.pfx", "node_modules/**", ".git/**", "dist/**"],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "*.env",
+            "*.key",
+            "*.pem",
+            "*.p12",
+            "*.pfx",
+            "node_modules/**",
+            ".git/**",
+            "dist/**"
+          ],
           "description": "File patterns to exclude from capture"
         },
         "contox.capture.includeDiffs": {
@@ -126,9 +142,10 @@
     }
   },
   "scripts": {
-    "build": "node esbuild.js",
+    "build:mcp": "node esbuild-mcp.js",
+    "build": "node esbuild-mcp.js && node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "package": "npx vsce package"
+    "package": "node esbuild-mcp.js && npx vsce package"
   },
   "devDependencies": {
     "@types/vscode": "^1.85.0",
