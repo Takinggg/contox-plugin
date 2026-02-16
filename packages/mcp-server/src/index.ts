@@ -43,7 +43,7 @@ import { assembleContextPack } from './lib/context-pack.js';
 
 const server = new McpServer({
   name: 'contox',
-  version: '1.0.1',
+  version: '1.1.0',
 });
 
 // Clients are initialized in main() via resolveProject() before server.connect()

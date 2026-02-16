@@ -265,6 +265,16 @@ async function handleMessage(
         }
       }
 
+      // Configure Antigravity (MCP server via ~/.gemini/antigravity/mcp_config.json)
+      if (tools.includes('antigravity')) {
+        try {
+          configureAntigravity(apiKey, apiUrl, teamId, projectId, extensionContext);
+          results.push('Antigravity MCP server configured');
+        } catch (err) {
+          results.push(`Antigravity: ${String(err)}`);
+        }
+      }
+
       post({ type: 'aiConfigured', results });
       break;
     }
@@ -324,6 +334,7 @@ export function configureAllMcp(
   configureCursor(apiKey, apiUrl, teamId, projectId, rootPath, hmacSecret, extensionContext);
   configureCopilot(apiKey, apiUrl, teamId, projectId, rootPath, hmacSecret, extensionContext);
   configureWindsurf(apiKey, apiUrl, teamId, extensionContext);
+  configureAntigravity(apiKey, apiUrl, teamId, projectId, extensionContext);
 }
 
 /* ── Internal helpers ──────────────────────────────────────────────────── */
@@ -450,6 +461,80 @@ function configureWindsurf(
     'contox',
     { command: 'node', args: [mcpServerPath], env },
   );
+}
+
+function configureAntigravity(
+  apiKey: string,
+  apiUrl: string,
+  teamId: string,
+  projectId: string,
+  extensionContext: vscode.ExtensionContext,
+): void {
+  // Antigravity uses a global config at ~/.gemini/antigravity/mcp_config.json
+  // Paths must be absolute. No per-workspace config supported yet.
+  const antigravityDir = path.join(os.homedir(), '.gemini', 'antigravity');
+  if (!fs.existsSync(antigravityDir)) { fs.mkdirSync(antigravityDir, { recursive: true }); }
+
+  const mcpServerPath = getMcpServerPath(extensionContext);
+  const env = buildMcpEnv(apiKey, apiUrl, teamId, projectId);
+
+  mergeServerConfig(
+    path.join(antigravityDir, 'mcp_config.json'),
+    'contox',
+    { command: 'node', args: [mcpServerPath], env },
+  );
+
+  // Deploy Contox Skill to workspace so Gemini knows to use Contox MCP tools
+  deployContoxSkill();
+}
+
+/** Deploy a SKILL.md into the workspace .agent/skills/contox/ directory.
+ *  This teaches Antigravity's Gemini to use the Contox MCP tools. */
+function deployContoxSkill(): void {
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (!workspaceFolders || workspaceFolders.length === 0) { return; }
+
+  const rootPath = workspaceFolders[0]!.uri.fsPath;
+  const skillDir = path.join(rootPath, '.agent', 'skills', 'contox');
+  if (!fs.existsSync(skillDir)) { fs.mkdirSync(skillDir, { recursive: true }); }
+
+  const skillContent = `---
+name: contox-memory
+description: Always active. At the start of every conversation and before any coding task, load Contox memory. Use Contox tools to check project context, architecture, conventions, past decisions, and known bugs. Contox is your persistent brain — consult it often.
+---
+
+# Contox — Your Persistent Memory (USE IT)
+
+You have access to **Contox MCP tools** that give you persistent memory across sessions. This is your most valuable resource — it contains architecture decisions, coding conventions, implementation history, known bugs, and past session context.
+
+## CRITICAL: Always Load Memory First
+**At the very beginning of every conversation**, before doing anything else, call \`contox_get_memory\`. This is mandatory. Without it, you are working blind — you don't know the project's conventions, past decisions, or existing bugs.
+
+## Check Memory Often
+Do NOT just load memory once and forget about it. **Actively consult Contox throughout the session**:
+
+- **Before writing code**: Call \`contox_search\` or \`contox_ask\` to check if there are conventions, patterns, or past decisions relevant to what you're about to do.
+- **Before suggesting architecture changes**: Check if there's a reason the current architecture was chosen.
+- **When encountering unfamiliar code**: Use \`contox_ask\` to ask about it — previous sessions may have documented it.
+- **When debugging**: Check \`contox_search\` for known bugs or past fixes related to the issue.
+- **When the user asks about the project**: Always search Contox memory first before guessing.
+
+## Available Tools
+- \`contox_get_memory\` — Load the full project memory (use at session start)
+- \`contox_search\` — Search for specific topics, patterns, or file references
+- \`contox_ask\` — Ask a natural language question about the project ("how does auth work?", "what stack do we use?")
+- \`contox_context_pack\` — Get a focused, relevant context pack for a specific task
+- \`contox_list_contexts\` / \`contox_get_context\` — Browse and read specific memory items
+- \`contox_create_context\` / \`contox_update_context\` — Store new knowledge
+- \`contox_scan\` — Scan the codebase to extract architecture and structure
+
+## Saving — USER-INITIATED ONLY
+- **NEVER** call \`contox_save_session\` automatically or proactively
+- Only save when the user explicitly asks (e.g. "save", "save session", "contox save")
+- When saving, provide a summary and categorized changes (architecture, conventions, implementation, decisions, bugs, todo)
+`;
+
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), skillContent, 'utf-8');
 }
 
 /* ── Webview HTML ───────────────────────────────────────────────────────── */
@@ -846,8 +931,8 @@ function getWebviewContent(): string {
           <input type="checkbox" value="claude" checked />
           <div class="checkbox"></div>
           <div class="info">
-            <div class="name">Claude</div>
-            <div class="desc">MCP server</div>
+            <div class="name">Claude Code</div>
+            <div class="desc">.mcp.json</div>
           </div>
         </label>
         <label class="ai-tool" onclick="toggleTool(this)">
@@ -855,7 +940,7 @@ function getWebviewContent(): string {
           <div class="checkbox"></div>
           <div class="info">
             <div class="name">Cursor</div>
-            <div class="desc">.cursorrules</div>
+            <div class="desc">.cursor/mcp.json</div>
           </div>
         </label>
         <label class="ai-tool" onclick="toggleTool(this)">
@@ -863,7 +948,7 @@ function getWebviewContent(): string {
           <div class="checkbox"></div>
           <div class="info">
             <div class="name">GitHub Copilot</div>
-            <div class="desc">instructions.md</div>
+            <div class="desc">.vscode/mcp.json</div>
           </div>
         </label>
         <label class="ai-tool" onclick="toggleTool(this)">
@@ -871,7 +956,15 @@ function getWebviewContent(): string {
           <div class="checkbox"></div>
           <div class="info">
             <div class="name">Windsurf</div>
-            <div class="desc">.windsurfrules</div>
+            <div class="desc">global MCP config</div>
+          </div>
+        </label>
+        <label class="ai-tool" onclick="toggleTool(this)">
+          <input type="checkbox" value="antigravity" />
+          <div class="checkbox"></div>
+          <div class="info">
+            <div class="name">Antigravity</div>
+            <div class="desc">~/.gemini/antigravity/</div>
           </div>
         </label>
       </div>

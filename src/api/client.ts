@@ -2,6 +2,19 @@ import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 
 /* ═══════════════════════════════════════════════════════════════════════════════
+ * IDE DETECTION — detect which VS Code fork is running
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+
+/** Detect the current IDE from vscode.env.appName */
+export function detectIdeSource(): string {
+  const name = vscode.env.appName.toLowerCase();
+  if (name.includes('cursor')) { return 'cursor'; }
+  if (name.includes('windsurf')) { return 'windsurf'; }
+  if (name.includes('antigravity')) { return 'antigravity'; }
+  return 'vscode';
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
  * TYPE DEFINITIONS — matching the real Contox API response shapes
  * ═══════════════════════════════════════════════════════════════════════════════ */
 
@@ -348,7 +361,7 @@ export class ContoxClient {
    * Create a new session for a project.
    * POST /api/v2/sessions
    */
-  async createSession(projectId: string, source = 'vscode'): Promise<ApiResponse<{ ok: boolean; sessionId: string }>> {
+  async createSession(projectId: string, source = detectIdeSource()): Promise<ApiResponse<{ ok: boolean; sessionId: string }>> {
     return this.request<{ ok: boolean; sessionId: string }>(
       '/v2/sessions',
       { method: 'POST', body: JSON.stringify({ projectId, source }) },
@@ -378,7 +391,7 @@ export class ContoxClient {
       .digest('hex');
 
     const body = {
-      source: 'vscode' as const,
+      source: detectIdeSource(),
       timestamp,
       nonce,
       signature,

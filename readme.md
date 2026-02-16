@@ -1,8 +1,8 @@
-# Contox — AI Context Memory
+# Contox: AI Context Memory
 
 **Give your AI tools persistent memory across sessions.**
 
-Contox captures your project's architecture, conventions, and decisions so Claude, Cursor, Copilot, and Windsurf always have the right context — no more repeating yourself.
+Contox captures your project's architecture, conventions, and decisions so Claude, Cursor, Copilot, Windsurf, and Antigravity always have the right context. No more repeating yourself.
 
 ## Features
 
@@ -15,12 +15,13 @@ One extension configures MCP (Model Context Protocol) for all your AI assistants
 - **Cursor**
 - **GitHub Copilot**
 - **Windsurf**
+- **Antigravity** (Google's AI IDE, with Skill integration for Gemini)
 
 ### Smart Memory System
-- **Genesis Scan** — Auto-extract architecture, conventions, security patterns, and data flow from your codebase
-- **Semantic Search** — Find anything in your project memory using natural language
-- **Ask AI** — Ask questions about your project and get sourced answers
-- **Session Tracking** — Automatic git commit enrichment with AI-generated summaries
+- **Genesis Scan**: Auto-extract architecture, conventions, security patterns, and data flow from your codebase
+- **Semantic Search**: Find anything in your project memory using natural language
+- **Ask AI**: Ask questions about your project and get sourced answers
+- **Session Tracking**: Automatic git commit enrichment with AI-generated summaries
 
 ### MCP Server (Bundled)
 The extension bundles and auto-deploys an MCP server that exposes 15+ tools to your AI assistant:
@@ -40,23 +41,25 @@ The extension bundles and auto-deploys an MCP server that exposes 15+ tools to y
 
 1. **Sign up** at [contox.dev](https://contox.dev)
 2. **Install this extension**
-3. **Click "Connect"** in the Contox sidebar — or use the deep link from your dashboard
+3. **Click "Connect"** in the Contox sidebar, or use the deep link from your dashboard
 4. Done. Your AI assistant now has persistent project memory.
 
 ## How It Works
 
 ```
-VS Code Extension
+Contox Extension
   ├── Captures git commits & file saves
   ├── Auto-deploys MCP server
   │     ├── Claude (.mcp.json)
   │     ├── Cursor (.cursor/mcp.json)
   │     ├── Copilot (.vscode/mcp.json)
-  │     └── Windsurf (~/.codeium/windsurf/mcp_config.json)
+  │     ├── Windsurf (~/.codeium/windsurf/mcp_config.json)
+  │     └── Antigravity (~/.gemini/antigravity/mcp_config.json)
+  ├── Deploys Antigravity Skill (.agent/skills/contox/)
   └── Syncs with contox.dev API
 ```
 
-The MCP server is bundled inside the extension — no separate install needed. It's automatically deployed to a stable location and configured for all your AI tools.
+The MCP server is bundled inside the extension. No separate install needed. It's automatically deployed to a stable location and configured for all your AI tools.
 
 ## Commands
 
@@ -71,12 +74,12 @@ The MCP server is bundled inside the extension — no separate install needed. I
 
 ## Also Available
 
-- **CLI**: `npm install -g contox-cli` — Terminal-based memory access
-- **MCP Server**: `npm install -g contox-mcp` — Standalone MCP server for non-VS Code setups
+- **CLI**: `npm install -g contox-cli`. Terminal-based memory access.
+- **MCP Server**: `npm install -g contox-mcp`. Standalone MCP server for non-VS Code setups.
 
 ## Requirements
 
-- VS Code 1.85+
+- VS Code 1.85+ (or Cursor, Windsurf, Antigravity)
 - Node.js 18+ (for MCP server)
 - A free account at [contox.dev](https://contox.dev)
 

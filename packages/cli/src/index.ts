@@ -23,7 +23,7 @@ const program = new Command();
 program
   .name('contox')
   .description('Contox CLI — manage AI contexts from the terminal')
-  .version('1.0.1');
+  .version('1.1.0');
 
 // Auth
 program.addCommand(loginCommand);

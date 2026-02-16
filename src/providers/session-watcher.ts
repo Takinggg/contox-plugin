@@ -141,7 +141,7 @@ export class SessionWatcher implements vscode.Disposable {
     if (this.trackedActiveSessionId && !activeSession) {
       console.log('[SessionWatcher] Active session closed externally — creating new session');
       this.gitWatcher?.resetBuffer();
-      void this.client.createSession(this.projectId!, 'vscode').then((res) => {
+      void this.client.createSession(this.projectId!).then((res) => {
         if (!res.error && res.data) {
           this.trackedActiveSessionId = res.data.sessionId;
           this.knownSessionIds.add(res.data.sessionId);

@@ -123,6 +123,31 @@ export interface V2AskResponse {
   model: string;
 }
 
+export interface V2AutoResolveCommit {
+  sha: string;
+  message: string;
+  files: string[];
+}
+
+export interface V2AutoResolveResult {
+  itemId: string;
+  title: string;
+  type: string;
+  matchType: 'file' | 'keyword' | 'both';
+  matchedFiles: string[];
+  confidence: number;
+  commitSha: string;
+  previousStatus: string;
+  newStatus: string;
+}
+
+export interface V2AutoResolveResponse {
+  resolved: V2AutoResolveResult[];
+  skipped: { itemId: string; title: string; reason: string }[];
+  totalItemsScanned: number;
+  dryRun: boolean;
+}
+
 // ── Client ──────────────────────────────────────────────────────────────────
 
 export class V2Client {
@@ -304,6 +329,22 @@ export class V2Client {
         plan: opts.plan,
         selectedActionIds: opts.selectedActionIds,
         dryRun: opts.dryRun ?? false,
+      }),
+    });
+  }
+
+  // ── Auto-Resolve ──────────────────────────────────────────────────────
+
+  async autoResolve(
+    commits: V2AutoResolveCommit[],
+    dryRun?: boolean,
+  ): Promise<V2AutoResolveResponse> {
+    return this.request<V2AutoResolveResponse>('/v2/auto-resolve', {
+      method: 'POST',
+      body: JSON.stringify({
+        projectId: this.projectId,
+        commits,
+        dryRun: dryRun ?? false,
       }),
     });
   }

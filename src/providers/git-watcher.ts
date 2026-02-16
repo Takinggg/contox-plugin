@@ -176,7 +176,7 @@ export class GitWatcher implements vscode.Disposable {
 
     // 5. Create a new session immediately
     let newSessionId: string | undefined;
-    const createResult = await this.client.createSession(this.projectId, 'vscode');
+    const createResult = await this.client.createSession(this.projectId);
     if (!createResult.error && createResult.data) {
       newSessionId = createResult.data.sessionId;
     }
