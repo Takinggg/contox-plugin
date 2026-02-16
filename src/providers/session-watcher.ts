@@ -137,9 +137,16 @@ export class SessionWatcher implements vscode.Disposable {
     }
 
     // Detect external session close (e.g. dashboard "Generate Memory")
-    // If we were tracking an active session and it's now closed, create a new one
+    // If we were tracking an active session and it's now closed:
+    // 1. Flush any pending events (they'll go into a new session via ingest)
+    // 2. Reset the buffer
+    // 3. Create a new session
     if (this.trackedActiveSessionId && !activeSession) {
-      console.log('[SessionWatcher] Active session closed externally — creating new session');
+      console.log('[SessionWatcher] Active session closed externally — flushing pending events');
+      // Flush first to avoid losing buffered commits
+      if (this.gitWatcher) {
+        await this.gitWatcher.flush();
+      }
       this.gitWatcher?.resetBuffer();
       void this.client.createSession(this.projectId!).then((res) => {
         if (!res.error && res.data) {
