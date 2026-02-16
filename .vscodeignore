@@ -1,0 +1,11 @@
+.github/
+.git/
+src/
+packages/
+node_modules/
+esbuild.js
+esbuild-mcp.js
+tsconfig.json
+*.ts
+**/*.map
+.gitignore

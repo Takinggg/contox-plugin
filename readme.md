@@ -1,66 +1,98 @@
 # Contox — AI Context Memory
 
-Give your AI tools persistent memory across sessions. Contox captures your project's architecture, conventions, and decisions so Claude, Cursor, Copilot, and Windsurf always have the right context.
+**Give your AI tools persistent memory across sessions.**
 
-## What's in this repo
+Contox captures your project's architecture, conventions, and decisions so Claude, Cursor, Copilot, and Windsurf always have the right context — no more repeating yourself.
 
-| Package | Description | Install |
-|---------|-------------|---------|
-| **VS Code Extension** | Auto-captures git events, deploys MCP server, configures all AI tools | [Marketplace](https://marketplace.visualstudio.com/items?itemName=contox.contox-vscode) |
-| **contox-mcp** | Standalone MCP server for Claude, Cursor, Copilot, Windsurf | `npm install -g contox-mcp` |
-| **contox-cli** | Terminal-based memory access and scanning | `npm install -g contox-cli` |
+## Features
 
-## Quick Start
+### Automatic Context Capture
+The extension watches your git commits and file saves, building a rich memory of your project over time. No manual setup required.
 
-1. **Sign up** at [contox.dev](https://contox.dev)
-2. **Install the VS Code extension** from the marketplace (or `.vsix`)
-3. **Connect** — the extension auto-configures MCP for all your AI tools
-4. Your AI assistant now has persistent project memory
+### Works With All AI Tools
+One extension configures MCP (Model Context Protocol) for all your AI assistants:
+- **Claude** (Claude Code, Claude Desktop)
+- **Cursor**
+- **GitHub Copilot**
+- **Windsurf**
 
-## How It Works
+### Smart Memory System
+- **Genesis Scan** — Auto-extract architecture, conventions, security patterns, and data flow from your codebase
+- **Semantic Search** — Find anything in your project memory using natural language
+- **Ask AI** — Ask questions about your project and get sourced answers
+- **Session Tracking** — Automatic git commit enrichment with AI-generated summaries
 
-```
-Your Code Editor
-    ├── VS Code Extension (captures git events, file saves)
-    │     └── MCP Server (bundled, auto-deployed)
-    │           ├── Claude (.mcp.json)
-    │           ├── Cursor (.cursor/mcp.json)
-    │           ├── Copilot (.vscode/mcp.json)
-    │           └── Windsurf (~/.codeium/windsurf/mcp_config.json)
-    └── contox.dev API (stores contexts, embeddings, sessions)
-```
+### MCP Server (Bundled)
+The extension bundles and auto-deploys an MCP server that exposes 15+ tools to your AI assistant:
 
-## MCP Server Tools
-
-The MCP server exposes these tools to your AI assistant:
-
-| Tool | Description |
+| Tool | What it does |
 |------|-------------|
-| `contox_get_memory` | Load project context at session start |
-| `contox_save_session` | Save session work into categorized sub-contexts |
+| `contox_get_memory` | Load full project context at session start |
+| `contox_save_session` | Save work into categorized sub-contexts |
 | `contox_search` | Semantic search across project memory |
 | `contox_scan` | Auto-extract architecture from codebase |
 | `contox_ask` | Natural language questions about your project |
 | `contox_context_pack` | Get focused context for the current task |
-| `contox_create/update/delete_context` | CRUD operations on contexts |
 | `contox_git_digest` | Read git commits since last save |
 | `contox_hygiene` | Clean up and organize memory |
 
-## Development
+## Quick Start
 
-```bash
-# Extension
-npm install
-npm run build        # builds extension + MCP bundle
+1. **Sign up** at [contox.dev](https://contox.dev)
+2. **Install this extension**
+3. **Click "Connect"** in the Contox sidebar — or use the deep link from your dashboard
+4. Done. Your AI assistant now has persistent project memory.
 
-# MCP Server
-cd packages/mcp-server
-npm install && npm run build
+## How It Works
 
-# CLI
-cd packages/cli
-npm install && npm run build
 ```
+VS Code Extension
+  ├── Captures git commits & file saves
+  ├── Auto-deploys MCP server
+  │     ├── Claude (.mcp.json)
+  │     ├── Cursor (.cursor/mcp.json)
+  │     ├── Copilot (.vscode/mcp.json)
+  │     └── Windsurf (~/.codeium/windsurf/mcp_config.json)
+  └── Syncs with contox.dev API
+```
+
+The MCP server is bundled inside the extension — no separate install needed. It's automatically deployed to a stable location and configured for all your AI tools.
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `Contox: Setup Wizard` | Configure API connection and AI tools |
+| `Contox: Load Memory` | Load project memory into the sidebar |
+| `Contox: Sync Contexts` | Manually sync contexts |
+| `Contox: End Session & Start New` | Close current session and start fresh |
+| `Contox: Disconnect` | Pause sync without removing config |
+| `Contox: Reconnect` | Resume sync |
+
+## Also Available
+
+- **CLI**: `npm install -g contox-cli` — Terminal-based memory access
+- **MCP Server**: `npm install -g contox-mcp` — Standalone MCP server for non-VS Code setups
+
+## Requirements
+
+- VS Code 1.85+
+- Node.js 18+ (for MCP server)
+- A free account at [contox.dev](https://contox.dev)
+
+## Privacy
+
+- Code diffs are truncated (max 2KB) and can be anonymized in settings
+- Sensitive files (`.env`, `.key`, `.pem`) are excluded by default
+- HMAC-SHA256 signed requests for tamper protection
+- All data stored in EU (Frankfurt) region
+
+## Links
+
+- [Website](https://contox.dev)
+- [Documentation](https://contox.dev/docs)
+- [GitHub](https://github.com/Takinggg/contox-plugin)
+- [Report Issues](https://github.com/Takinggg/contox-plugin/issues)
 
 ## License
 

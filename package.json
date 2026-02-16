@@ -1,15 +1,33 @@
 {
   "name": "contox-vscode",
-  "displayName": "Contox",
-  "description": "AI context management — browse, sync, and manage your Contox contexts from VS Code",
+  "displayName": "Contox — AI Context Memory",
+  "description": "Give your AI tools persistent memory. Auto-captures architecture, conventions, and decisions so Claude, Cursor, Copilot & Windsurf always have the right context.",
   "version": "1.0.0",
   "publisher": "contox",
+  "icon": "resources/icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
+    "AI",
+    "Machine Learning",
     "Other"
   ],
+  "keywords": [
+    "ai",
+    "mcp",
+    "claude",
+    "cursor",
+    "copilot",
+    "windsurf",
+    "context",
+    "memory",
+    "ai-assistant"
+  ],
+  "galleryBanner": {
+    "color": "#0A0A0A",
+    "theme": "dark"
+  },
   "activationEvents": [
     "onUri",
     "workspaceContains:.contox.json"
