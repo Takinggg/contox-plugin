@@ -2,7 +2,7 @@
   "name": "contox-vscode",
   "displayName": "Contox — AI Context Memory",
   "description": "Give your AI tools persistent memory. Auto-captures architecture, conventions, and decisions so Claude, Cursor, Copilot & Windsurf always have the right context.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "contox",
   "icon": "resources/icon.png",
   "engines": {
@@ -29,6 +29,7 @@
     "theme": "dark"
   },
   "activationEvents": [
+    "onStartupFinished",
     "onUri",
     "workspaceContains:.contox.json"
   ],

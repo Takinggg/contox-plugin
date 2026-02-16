@@ -88,10 +88,9 @@ class ContoxUriHandler implements vscode.UriHandler {
     const teamId = params.get('teamId');
     const projectId = params.get('projectId');
     const projectName = params.get('projectName');
-    const hmacSecret = params.get('hmacSecret');
 
     if (uri.path === '/setup' && token) {
-      await this.handleSetup(token, teamId, projectId, projectName, hmacSecret);
+      await this.handleSetup(token, teamId, projectId, projectName);
     } else if (uri.path === '/desync') {
       await vscode.commands.executeCommand('contox.desync');
     } else if (uri.path === '/connect') {
@@ -104,14 +103,22 @@ class ContoxUriHandler implements vscode.UriHandler {
     teamId: string | null,
     projectId: string | null,
     projectName: string | null,
-    hmacSecret: string | null,
   ): Promise<void> {
     // 1. Store the API key
     await this.client.setApiKey(token);
 
-    // 2. Store per-project HMAC secret for capture signing
-    if (hmacSecret) {
-      await this.context.secrets.store('contox-hmac-secret', hmacSecret);
+    // 2. Fetch HMAC secret securely via API (not from deep link URL)
+    let hmacSecret: string | null = null;
+    if (projectId) {
+      try {
+        const result = await this.client.getProjectHmacSecret(projectId);
+        if (result.data?.hmacSecret) {
+          hmacSecret = result.data.hmacSecret;
+          await this.context.secrets.store('contox-hmac-secret', hmacSecret);
+        }
+      } catch {
+        console.warn('Contox: Failed to fetch HMAC secret — git capture will retry later');
+      }
     }
 
     // 3. If projectId provided, auto-configure workspace
@@ -154,11 +161,6 @@ class ContoxUriHandler implements vscode.UriHandler {
     const configPath = path.join(rootPath, '.contox.json');
     const config = { teamId, projectId, projectName };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
-
-    // Store HMAC secret in SecretStorage (if provided via deep link)
-    if (hmacSecret) {
-      await this.context.secrets.store('contox-hmac-secret', hmacSecret);
-    }
 
     // Write ~/.contoxrc for CLI auth (includes hmacSecret for CLI V2 ingest)
     try {

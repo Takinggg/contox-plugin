@@ -3,7 +3,7 @@
 /* ═══════════════════════════════════════════════════════════════════════════════
  * Contox MCP Server — Persistent AI Project Memory (V2 Pipeline)
  *
- * 21 tools for full brain management:
+ * 23 tools for full brain management:
  * - contox_get_memory      → Load V2 brain document (structured memory items)
  * - contox_save_session    → Save session via V2 ingest pipeline
  * - contox_list/get/create/update/delete → CRUD operations
@@ -21,6 +21,7 @@
  * - contox_scan            → Scan codebase and push hierarchical sub-contexts
  * - contox_git_digest      → Read git commits since last save for Claude enrichment
  * - contox_hygiene         → Memory hygiene agent (analyze + apply)
+ * - contox_auto_resolve    → Auto-resolve memory items from committed fixes
  * ═══════════════════════════════════════════════════════════════════════════════ */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -42,7 +43,7 @@ import { assembleContextPack } from './lib/context-pack.js';
 
 const server = new McpServer({
   name: 'contox',
-  version: '1.0.0',
+  version: '1.0.1',
 });
 
 // Clients are initialized in main() via resolveProject() before server.connect()
@@ -133,6 +134,30 @@ The session log is updated automatically. Content is APPENDED to existing sub-co
           updateClaudeMd(process.cwd(), client).catch(() => { /* non-critical */ });
         });
 
+      // Post-save: auto-resolve memory items that match committed files (fire-and-forget)
+      let autoResolveNote = '';
+      if (params.headCommitSha) {
+        getGitDigest(client, { limit: 10 })
+          .then((digest) => {
+            if (digest.commits.length > 0) {
+              const commits = digest.commits.map((c) => ({
+                sha: c.sha,
+                message: c.message,
+                files: c.files,
+              }));
+              return v2Client.autoResolve(commits);
+            }
+            return null;
+          })
+          .then((result) => {
+            if (result && result.resolved.length > 0) {
+              console.error(`[auto-resolve] Post-save: resolved ${String(result.resolved.length)} memory items`);
+            }
+          })
+          .catch(() => { /* non-critical */ });
+        autoResolveNote = '\nAuto-resolve running in background — matching commits against existing memory items.';
+      }
+
       return {
         content: [{
           type: 'text',
@@ -141,6 +166,7 @@ The session log is updated automatically. Content is APPENDED to existing sub-co
             `- Event ID: ${v2Result.eventId}`,
             `- Session: ${v2Result.sessionId}`,
             `Raw event stored. Enrichment deferred — user must click "Generate Memory" in the dashboard to trigger the pipeline.`,
+            autoResolveNote,
           ].join('\n'),
         }],
       };
@@ -1014,6 +1040,107 @@ Each action has a confidence score and requiresHumanApproval flag.`,
     } catch (err) {
       return {
         content: [{ type: 'text', text: `Error: ${String(err)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+/* ── Tool 23: Auto-Resolve ───────────────────────────────────────────── */
+server.tool(
+  'contox_auto_resolve',
+  `Automatically resolve memory items when code fixes are committed. Analyzes recent git commits, matches modified files against existing BugFix/Todo/security memory items, and marks resolved items as archived.
+
+Use this AFTER committing fixes to automatically update the project memory. The tool:
+1. Reads recent git commits (since last save)
+2. Matches commit files against memory items' file references
+3. Uses keyword matching (fix, resolve, patch, secure, etc.) as a secondary signal
+4. Archives high-confidence matches, flags medium-confidence ones for review
+
+Supports dry-run mode to preview what would be resolved without making changes.`,
+  {
+    directory: z.string().optional().describe(
+      'Absolute path to the git repo root. Defaults to the current working directory.',
+    ),
+    limit: z.number().optional().describe(
+      'Max commits to analyze. Default 20.',
+    ),
+    dryRun: z.boolean().optional().describe(
+      'If true, show what would be resolved without making changes.',
+    ),
+  },
+  async (params) => {
+    try {
+      // 1. Get git digest (recent commits)
+      const digest = await getGitDigest(client, {
+        directory: params.directory,
+        limit: params.limit,
+      });
+
+      if (digest.commits.length === 0) {
+        return {
+          content: [{
+            type: 'text',
+            text: 'No commits found to analyze. Nothing to resolve.',
+          }],
+        };
+      }
+
+      // 2. Map commits to the format expected by auto-resolve API
+      const commits = digest.commits.map((c) => ({
+        sha: c.sha,
+        message: c.message,
+        files: c.files,
+      }));
+
+      // 3. Call auto-resolve API
+      const result = await v2Client.autoResolve(commits, params.dryRun);
+
+      // 4. Format output
+      const lines: string[] = [];
+
+      if (result.dryRun) {
+        lines.push('# Auto-Resolve (DRY RUN)');
+      } else {
+        lines.push('# Auto-Resolve Results');
+      }
+      lines.push('');
+      lines.push(`Analyzed **${String(digest.commits.length)}** commits against **${String(result.totalItemsScanned)}** active memory items.`);
+      lines.push('');
+
+      if (result.resolved.length === 0) {
+        lines.push('No memory items matched the committed changes.');
+      } else {
+        lines.push(`## Resolved (${String(result.resolved.length)})`);
+        lines.push('');
+
+        for (const item of result.resolved) {
+          const statusIcon = item.newStatus === 'archived' ? '\u2705' : '\uD83D\uDD0D';
+          lines.push(`${statusIcon} **${item.title}** (${item.type})`);
+          lines.push(`  - Match: ${item.matchType} | Confidence: ${String(item.confidence)}`);
+          lines.push(`  - Commit: ${item.commitSha.slice(0, 7)}`);
+          if (item.matchedFiles.length > 0) {
+            lines.push(`  - Files: ${item.matchedFiles.join(', ')}`);
+          }
+          lines.push(`  - Status: ${item.previousStatus} → ${item.newStatus}`);
+          lines.push('');
+        }
+      }
+
+      if (result.skipped.length > 0) {
+        lines.push(`## Skipped (${String(result.skipped.length)})`);
+        for (const item of result.skipped) {
+          lines.push(`- ${item.title}: ${item.reason}`);
+        }
+        lines.push('');
+      }
+
+      return {
+        content: [{ type: 'text', text: lines.join('\n') }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Error auto-resolving: ${String(err)}` }],
         isError: true,
       };
     }
