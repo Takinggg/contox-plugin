@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.2] — 2026-02-17
+
+### Fixed
+- **Source validation**: Server now accepts `cursor`, `windsurf`, `antigravity` as valid sources (was rejecting with "Invalid option")
+- **Session isolation**: Each IDE now gets its own session — VS Code, Cursor, Windsurf, and Antigravity no longer share sessions
+- **Event loss prevention**: Pending events are now flushed before buffer reset when a session is closed externally (e.g. "Generate Memory")
+- Sessions no longer auto-close after enrichment, preventing event loss during processing
+
 ## [1.1.1] — 2026-02-16
 
 ### Fixed
