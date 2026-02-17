@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.3] — 2026-02-17
+
+### Fixed
+- **HMAC secret for Windsurf & Antigravity**: MCP server config now includes `CONTOX_HMAC_SECRET` for Windsurf and Antigravity — fixes `contox_save_session` failing with "V2_HMAC_SECRET is required for V2 ingest"
+
 ## [1.1.2] — 2026-02-17
 
 ### Fixed
