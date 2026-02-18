@@ -105,6 +105,9 @@ export class ContoxClient {
   private baseUrl: string;
   private apiKey: string | undefined;
 
+  /** Default timeout for API requests (30 seconds) */
+  private static readonly REQUEST_TIMEOUT_MS = 30_000;
+
   constructor(private readonly secrets: vscode.SecretStorage) {
     const config = vscode.workspace.getConfiguration('contox');
     this.baseUrl = config.get<string>('apiUrl', 'https://contox.dev');
@@ -142,6 +145,7 @@ export class ContoxClient {
     try {
       const response = await fetch(url, {
         ...options,
+        signal: options.signal ?? AbortSignal.timeout(ContoxClient.REQUEST_TIMEOUT_MS),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${key}`,
@@ -383,15 +387,19 @@ export class ContoxClient {
     hmacSecret: string,
   ): Promise<ApiResponse<IngestResponse>> {
     const eventPayload = JSON.stringify(event);
+    const source = detectIdeSource();
     const timestamp = new Date().toISOString();
     const nonce = crypto.randomBytes(16).toString('hex');
+
+    // V2 extended signing: source + timestamp + projectId + event payload
+    const signingPayload = `${source}\n${timestamp}\n${projectId}\n${eventPayload}`;
     const signature = crypto
       .createHmac('sha256', hmacSecret)
-      .update(eventPayload)
+      .update(signingPayload)
       .digest('hex');
 
     const body = {
-      source: detectIdeSource(),
+      source,
       timestamp,
       nonce,
       signature,
@@ -415,6 +423,7 @@ export class ContoxClient {
           'Authorization': `Bearer ${key}`,
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(ContoxClient.REQUEST_TIMEOUT_MS),
       });
 
       if (!response.ok) {

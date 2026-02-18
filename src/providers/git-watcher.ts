@@ -31,6 +31,11 @@ const MAX_DIFF_CHARS_PER_COMMIT = 3000;
 /** Timeout for git diff-tree command (ms) */
 const DIFF_TIMEOUT_MS = 5000;
 
+/** Max retry attempts for failed flushes */
+const MAX_FLUSH_RETRIES = 3;
+/** Base delay for exponential backoff (ms) */
+const RETRY_BASE_DELAY_MS = 2000;
+
 /** Files to exclude from diff capture (binary, locks, large generated files) */
 const DIFF_EXCLUDE_PATTERNS = [
   /package-lock\.json$/,
@@ -71,6 +76,11 @@ export class GitWatcher implements vscode.Disposable {
   // Disposables for VS Code event listeners
   private gitStateDisposable: vscode.Disposable | undefined;
   private fileSaveDisposable: vscode.Disposable | undefined;
+  private activeEditorDisposable: vscode.Disposable | undefined;
+
+  // Retry queue for failed flushes
+  private retryQueue: VsCodeCaptureEvent[] = [];
+  private retryTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private readonly client: ContoxClient,
@@ -104,6 +114,8 @@ export class GitWatcher implements vscode.Disposable {
     this.gitStateDisposable = undefined;
     this.fileSaveDisposable?.dispose();
     this.fileSaveDisposable = undefined;
+    this.activeEditorDisposable?.dispose();
+    this.activeEditorDisposable = undefined;
     this.projectId = null;
   }
 
@@ -129,15 +141,73 @@ export class GitWatcher implements vscode.Disposable {
 
     if (result.error) {
       console.error('[GitWatcher] Ingest failed:', result.error);
-      void vscode.window.showWarningMessage(`Contox: Failed to send captured events — ${result.error}`);
+      // Queue for retry instead of dropping events
+      this.retryQueue.push(event);
+      this.scheduleRetry();
     } else {
       const commitCount = this.buffer.commits.length;
       const fileCount = this.buffer.filesModified.size;
       console.log(`[GitWatcher] Flushed: ${commitCount} commits, ${fileCount} files`);
     }
 
-    // Reset buffer
+    // Reset buffer (new events go to a fresh buffer, failed ones are in retryQueue)
     this.initBuffer();
+
+    // Also try to flush any previously queued events
+    if (!result.error && this.retryQueue.length > 0) {
+      await this.processRetryQueue(hmacSecret);
+    }
+  }
+
+  /** Schedule a retry attempt with exponential backoff */
+  private scheduleRetry(attempt = 0): void {
+    if (this.retryTimer) { return; } // Already scheduled
+    if (attempt >= MAX_FLUSH_RETRIES) {
+      console.error(`[GitWatcher] Retry queue exhausted after ${MAX_FLUSH_RETRIES} attempts — ${this.retryQueue.length} events lost`);
+      void vscode.window.showWarningMessage(
+        `Contox: ${this.retryQueue.length} capture events could not be sent after ${MAX_FLUSH_RETRIES} retries.`,
+      );
+      this.retryQueue = [];
+      return;
+    }
+
+    const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+    console.log(`[GitWatcher] Scheduling retry in ${delay}ms (attempt ${attempt + 1}/${MAX_FLUSH_RETRIES})`);
+
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      void this.retryFlush(attempt);
+    }, delay);
+  }
+
+  private async retryFlush(attempt: number): Promise<void> {
+    if (this.retryQueue.length === 0 || !this.projectId) { return; }
+
+    const hmacSecret = await this.getHmacSecret();
+    if (!hmacSecret) { return; }
+
+    await this.processRetryQueue(hmacSecret, attempt);
+  }
+
+  private async processRetryQueue(hmacSecret: string, attempt = 0): Promise<void> {
+    if (!this.projectId) { return; }
+
+    const remaining: VsCodeCaptureEvent[] = [];
+
+    for (const event of this.retryQueue) {
+      const result = await this.client.ingestEvents(this.projectId, event, hmacSecret);
+      if (result.error) {
+        remaining.push(event);
+      } else {
+        console.log(`[GitWatcher] Retry succeeded: ${event.commits.length} commits`);
+      }
+    }
+
+    this.retryQueue = remaining;
+
+    if (remaining.length > 0) {
+      this.scheduleRetry(attempt + 1);
+    }
   }
 
   getEventCount(): number {
@@ -501,8 +571,9 @@ export class GitWatcher implements vscode.Disposable {
       }
     });
 
-    // Track active editor files
-    vscode.window.onDidChangeActiveTextEditor((editor) => {
+    // Track active editor files — store disposable to prevent memory leak
+    this.activeEditorDisposable?.dispose();
+    this.activeEditorDisposable = vscode.window.onDidChangeActiveTextEditor((editor) => {
       if (!this.buffer || this.disposed || !editor) { return; }
       const relativePath = vscode.workspace.asRelativePath(editor.document.uri, false);
       if (!this.isExcluded(relativePath)) {
@@ -543,6 +614,7 @@ export class GitWatcher implements vscode.Disposable {
     if (this.autoFlushTimer) { clearInterval(this.autoFlushTimer); this.autoFlushTimer = undefined; }
     if (this.captureTickTimer) { clearInterval(this.captureTickTimer); this.captureTickTimer = undefined; }
     if (this.gitPollTimer) { clearInterval(this.gitPollTimer); this.gitPollTimer = undefined; }
+    if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = undefined; }
   }
 
   private checkVolumeThreshold(): void {
@@ -609,16 +681,11 @@ export class GitWatcher implements vscode.Disposable {
   private hmacSecretWarningShown = false;
 
   private async getHmacSecret(): Promise<string | null> {
-    // 1. Try VS Code SecretStorage first
+    // 1. Try VS Code SecretStorage first (encrypted)
     const fromSecrets = await this.secrets.get('contox-hmac-secret');
     if (fromSecrets) { return fromSecrets; }
 
-    // 2. Try settings fallback
-    const config = vscode.workspace.getConfiguration('contox');
-    const fromSettings = config.get<string>('hmacSecret', '');
-    if (fromSettings) { return fromSettings; }
-
-    // 3. API fallback — fetch from server and cache in SecretStorage
+    // 2. API fallback — fetch from server and cache in SecretStorage
     if (this.projectId) {
       try {
         const result = await this.client.getProjectHmacSecret(this.projectId);
