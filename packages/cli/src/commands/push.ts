@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { readFileSync, existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import chalk from 'chalk';
-import { createApiClient, handleApiError } from '../lib/api.js';
+import { createApiClient, handleApiError, verifyProjectAccess } from '../lib/api.js';
 import type { ContextItem } from '../lib/api.js';
 import { findProjectConfig } from '../lib/config.js';
 
@@ -25,10 +25,13 @@ export const pushCommand = new Command('push')
       return;
     }
 
+    // Pre-flight: verify access to the project
+    if (!(await verifyProjectAccess(api, projectId))) { return; }
+
     // Fetch existing contexts to check for name matches
     let existingContexts: ContextItem[] = [];
     try {
-      const res = await api.get(`/api/contexts?projectId=${projectId}`);
+      const res = await api.get(`/api/contexts?projectId=${encodeURIComponent(projectId)}`);
       if (res.ok) {
         existingContexts = (await res.json()) as ContextItem[];
       }

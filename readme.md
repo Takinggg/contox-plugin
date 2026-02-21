@@ -2,80 +2,93 @@
 
 **Give your AI tools persistent memory across sessions.**
 
-Contox captures your project's architecture, conventions, and decisions so Claude, Cursor, Copilot, Windsurf, and Antigravity always have the right context. No more repeating yourself.
+Contox captures your project's architecture, conventions, and decisions so all your AI assistants always have the right context. No more repeating yourself.
+
+## Supported AI Tools
+
+One extension, all your tools. Contox auto-configures MCP (Model Context Protocol) for:
+
+| Tool | Config location |
+|------|----------------|
+| **Claude Code** | `.mcp.json` |
+| **Cursor** | `.cursor/mcp.json` |
+| **GitHub Copilot** | `.vscode/mcp.json` |
+| **Windsurf** | `~/.codeium/windsurf/mcp_config.json` |
+| **Antigravity** | `~/.gemini/antigravity/mcp_config.json` |
+| **Cline** | VS Code globalStorage |
+| **Gemini CLI** | `~/.gemini/settings.json` |
+
+All configs are written automatically when you connect. No manual editing needed.
 
 ## Features
 
 ### Automatic Context Capture
-The extension watches your git commits and file saves, building a rich memory of your project over time. No manual setup required.
+The extension watches your git commits and file saves, building a rich memory of your project over time. Every meaningful commit is enriched with AI-generated summaries.
 
-### Works With All AI Tools
-One extension configures MCP (Model Context Protocol) for all your AI assistants:
-- **Claude** (Claude Code, Claude Desktop)
-- **Cursor**
-- **GitHub Copilot**
-- **Windsurf**
-- **Antigravity** (Google's AI IDE, with Skill integration for Gemini)
+### Smart Connect Flow
+Click "Connect IDE" from the dashboard and the extension:
+1. Checks if the extension is already installed and up-to-date
+2. Detects if the IDE is already connected
+3. Auto-creates an API key if needed
+4. Deploys the MCP server binary
+5. Configures all 7 AI tools at once
+6. Starts capturing immediately
 
-### Smart Memory System
-- **Genesis Scan**: Auto-extract architecture, conventions, security patterns, and data flow from your codebase
-- **Semantic Search**: Find anything in your project memory using natural language
-- **Ask AI**: Ask questions about your project and get sourced answers
-- **Session Tracking**: Automatic git commit enrichment with AI-generated summaries
+If something breaks, use "Reconnect" to re-verify and repair all configs.
 
 ### MCP Server (Bundled)
-The extension bundles and auto-deploys an MCP server that exposes 15+ tools to your AI assistant:
+The extension bundles and auto-deploys an MCP server that exposes tools to your AI assistant:
 
 | Tool | What it does |
 |------|-------------|
 | `contox_get_memory` | Load full project context at session start |
 | `contox_save_session` | Save work into categorized sub-contexts |
 | `contox_search` | Semantic search across project memory |
-| `contox_scan` | Auto-extract architecture from codebase |
 | `contox_ask` | Natural language questions about your project |
 | `contox_context_pack` | Get focused context for the current task |
+| `contox_scan` | Auto-extract architecture from codebase |
 | `contox_git_digest` | Read git commits since last save |
 | `contox_hygiene` | Clean up and organize memory |
+
+### Genesis Scan
+Auto-extract architecture, conventions, security patterns, and data flow from your codebase. Results feed directly into your project memory.
+
+### Version Tracking
+The dashboard detects your installed extension version and shows an update banner when a new version is available.
 
 ## Quick Start
 
 1. **Sign up** at [contox.dev](https://contox.dev)
-2. **Install this extension**
-3. **Click "Connect"** in the Contox sidebar, or use the deep link from your dashboard
+2. **Install this extension** in VS Code, Cursor, Windsurf, or Antigravity
+3. **Click "Connect IDE"** from the dashboard -- it handles everything
 4. Done. Your AI assistant now has persistent project memory.
 
 ## How It Works
 
 ```
-Contox Extension
-  ├── Captures git commits & file saves
-  ├── Auto-deploys MCP server
-  │     ├── Claude (.mcp.json)
-  │     ├── Cursor (.cursor/mcp.json)
-  │     ├── Copilot (.vscode/mcp.json)
-  │     ├── Windsurf (~/.codeium/windsurf/mcp_config.json)
-  │     └── Antigravity (~/.gemini/antigravity/mcp_config.json)
-  ├── Deploys Antigravity Skill (.agent/skills/contox/)
-  └── Syncs with contox.dev API
+You code normally
+   |
+Contox Extension captures git commits + file saves
+   |
+Events are signed (HMAC-SHA256) and sent to Contox API
+   |
+AI enrichment extracts architecture, conventions, decisions
+   |
+MCP server exposes memory to Claude, Cursor, Copilot, etc.
+   |
+Your AI assistant knows your project across sessions
 ```
-
-The MCP server is bundled inside the extension. No separate install needed. It's automatically deployed to a stable location and configured for all your AI tools.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `Contox: Setup Wizard` | Configure API connection and AI tools |
+| `Contox: Setup Wizard` | Guided setup with API key, team, project, and AI tool selection |
 | `Contox: Load Memory` | Load project memory into the sidebar |
 | `Contox: Sync Contexts` | Manually sync contexts |
 | `Contox: End Session & Start New` | Close current session and start fresh |
 | `Contox: Disconnect` | Pause sync without removing config |
 | `Contox: Reconnect` | Resume sync |
-
-## Also Available
-
-- **CLI**: `npm install -g contox-cli`. Terminal-based memory access.
-- **MCP Server**: `npm install -g contox-mcp`. Standalone MCP server for non-VS Code setups.
 
 ## Requirements
 
@@ -85,14 +98,12 @@ The MCP server is bundled inside the extension. No separate install needed. It's
 
 ## Privacy & Data Collection
 
-This extension collects and transmits the following data to the Contox API (`contox.dev`):
-
 ### What data is collected
 - **Git commit metadata**: commit SHA, message, author name, timestamp, list of files changed
-- **Code diffs**: truncated to max 2KB per commit (can be fully disabled or anonymized in settings)
+- **Code diffs**: truncated to max 3KB per commit (can be disabled in settings)
 - **File save events**: file paths of saved files (no file contents)
 - **Project metadata**: project name, workspace root path
-- **Session data**: session start/end times, event counts
+- **Session data**: session start/end times, event counts, extension version
 
 ### What is NOT collected
 - Full source code or file contents (only truncated diffs)
@@ -103,7 +114,7 @@ This extension collects and transmits the following data to the Contox API (`con
 Data is used to build a persistent project memory that AI tools can query via MCP. This includes generating context summaries, semantic search indexes, and session enrichment.
 
 ### Data sharing
-- Data is transmitted to `contox.dev` (Contox API) over HTTPS
+- Data is transmitted to `contox.dev` over HTTPS
 - Requests are signed with HMAC-SHA256 for tamper protection
 - Data is accessible only to your team members (role-based access control)
 - Data is **not** shared with third parties, sold, or used for advertising
@@ -111,7 +122,7 @@ Data is used to build a persistent project memory that AI tools can query via MC
 ### Storage & retention
 - All data is stored in the **EU (Frankfurt region)** on Appwrite Cloud infrastructure
 - Data is retained for the lifetime of your account
-- You can delete individual sessions, contexts, or your entire project at any time from the dashboard
+- You can delete sessions, contexts, or your entire project from the dashboard
 - Account deletion removes all associated data
 
 ### User controls
@@ -119,6 +130,7 @@ Data is used to build a persistent project memory that AI tools can query via MC
 - **`contox.capture.includeDiffs`**: Disable code diff capture (default: enabled)
 - **`contox.capture.anonymizeDiffs`**: Strip code content, keep only file paths and stats (default: disabled)
 - **`contox.capture.excludePatterns`**: Customize file exclusion patterns
+- **`contox.autoEnrich`**: Disable automatic learning from commits (default: enabled)
 - **`Contox: Disconnect`** command: Pause all sync without removing configuration
 
 ## Links

@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { ContoxClient, ContoxProject } from '../api/client';
+import { configureAllMcp } from './setup-wizard';
+import { deployMcpServer } from '../lib/mcp-deployer';
 
 /**
  * "Contox: Initialize Project"
@@ -11,7 +13,7 @@ import { ContoxClient, ContoxProject } from '../api/client';
  * a .contox.json config file in the workspace root so other commands
  * know which teamId / projectId to use.
  */
-export function registerInitCommand(client: ContoxClient): vscode.Disposable {
+export function registerInitCommand(client: ContoxClient, extensionContext: vscode.ExtensionContext): vscode.Disposable {
   return vscode.commands.registerCommand('contox.init', async () => {
     // Must be authenticated
     const key = await client.getApiKey();
@@ -103,8 +105,19 @@ export function registerInitCommand(client: ContoxClient): vscode.Disposable {
     };
 
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+
+    // Auto-configure MCP for all AI tools
+    const apiUrl = vscode.workspace.getConfiguration('contox').get<string>('apiUrl', 'https://contox.dev');
+    const hmacSecret = await extensionContext.secrets.get('contox-hmac-secret');
+    try {
+      await deployMcpServer(extensionContext);
+      configureAllMcp(key, apiUrl, teamId, selectedProject.id, rootPath, hmacSecret ?? undefined, extensionContext);
+    } catch (err) {
+      console.error('Contox: Failed to auto-configure MCP:', err);
+    }
+
     void vscode.window.showInformationMessage(
-      `Contox: Linked workspace to project "${selectedProject.name}"`,
+      `Contox: Linked workspace to "${selectedProject.name}" — MCP configured for all AI tools`,
     );
 
     // Trigger a sync so the sidebar populates immediately

@@ -11,8 +11,9 @@ const execFileAsync = promisify(execFile);
  * Git Watcher — Universal capture sensor for VS Code / Cursor / Windsurf
  *
  * Watches git commits and file saves, flushes immediately on each commit
- * to the Contox V2 ingest API with skipEnrichment=true.
- * Enrichment is deferred to user action in the Dashboard Inbox.
+ * to the Contox V2 ingest API. Auto-enrichment is enabled by default so
+ * memory grows automatically from commits (server-side rate limited to 1/10min).
+ * Users can opt out via the `contox.autoEnrich` setting.
  * ═══════════════════════════════════════════════════════════════════════════════ */
 
 /** Flush buffer after 15 minutes of inactivity */
@@ -61,6 +62,11 @@ interface CaptureBuffer {
   eventCount: number;
   totalPayloadSize: number;
 }
+
+/** Max retry attempts for failed flushes */
+const MAX_FLUSH_RETRIES = 3;
+/** Base delay for exponential backoff (ms) */
+const RETRY_BASE_DELAY_MS = 2000;
 
 export class GitWatcher implements vscode.Disposable {
   private projectId: string | null = null;
@@ -137,7 +143,14 @@ export class GitWatcher implements vscode.Disposable {
       activeEditorFiles: [...this.buffer.activeEditorFiles],
     };
 
-    const result = await this.client.ingestEvents(this.projectId, event, hmacSecret);
+    // Check auto-enrich config (default: true = auto-learn from commits)
+    const captureConfig = vscode.workspace.getConfiguration('contox');
+    const autoEnrich = captureConfig.get<boolean>('autoEnrich', true);
+
+    const result = await this.client.ingestEvents(
+      this.projectId, event, hmacSecret,
+      autoEnrich ? undefined : { skipEnrichment: true },
+    );
 
     if (result.error) {
       console.error('[GitWatcher] Ingest failed:', result.error);
@@ -147,7 +160,7 @@ export class GitWatcher implements vscode.Disposable {
     } else {
       const commitCount = this.buffer.commits.length;
       const fileCount = this.buffer.filesModified.size;
-      console.log(`[GitWatcher] Flushed: ${commitCount} commits, ${fileCount} files`);
+      console.log(`[GitWatcher] Flushed: ${commitCount} commits, ${fileCount} files${autoEnrich ? ' (auto-enrich)' : ''}`);
     }
 
     // Reset buffer (new events go to a fresh buffer, failed ones are in retryQueue)

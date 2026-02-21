@@ -390,11 +390,18 @@ export function factsToSessionInput(facts: SessionFacts): SessionInput {
 
 // ── Sanitization ─────────────────────────────────────────────────────────────
 
-const SENSITIVE_PATTERNS = [
+const SENSITIVE_PATTERNS: RegExp[] = [
   /Bearer\s+\S{20,}/gi,
   /(?:api[_-]?key|token|secret|password)\s*[:=]\s*\S+/gi,
-  /sk-[a-zA-Z0-9]{20,}/g,
-  /ghp_[a-zA-Z0-9]{36,}/g,
+  /sk-[a-zA-Z0-9]{20,}/g,                           // OpenAI legacy
+  /sk-ant-[a-zA-Z0-9_-]{20,}/g,                     // Anthropic keys
+  /sk_(live|test)_[a-zA-Z0-9]{20,}/g,               // Stripe live/test keys
+  /AKIA[A-Z0-9]{16}/g,                               // AWS Access Key IDs
+  /ghp_[a-zA-Z0-9]{36,}/g,                          // GitHub PATs (classic)
+  /gh[ous]_[a-zA-Z0-9]{36,}/g,                      // GitHub OAuth/user/server tokens
+  /ctx_[a-zA-Z0-9]{20,}/g,                          // Contox own API keys
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/g,             // PEM private key headers
+  /(postgres|mysql|mongodb(\+srv)?):\/\/[^\s]+/gi,  // Database connection strings
 ];
 
 function sanitize(text: string): string {

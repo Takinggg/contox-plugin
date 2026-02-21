@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { createApiClient, handleApiError } from '../lib/api.js';
+import { createApiClient, handleApiError, verifyProjectAccess } from '../lib/api.js';
 import type { ContextItem } from '../lib/api.js';
 import { findProjectConfig } from '../lib/config.js';
 
@@ -29,6 +29,9 @@ export const explainCommand = new Command('explain')
       process.exitCode = 1;
       return;
     }
+
+    // Pre-flight: verify access to the project
+    if (!(await verifyProjectAccess(api, projectConfig.projectId))) { return; }
 
     try {
       // Find context by schemaKey

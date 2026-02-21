@@ -1,8 +1,8 @@
 {
   "name": "contox-vscode",
   "displayName": "Contox — AI Context Memory",
-  "description": "Give your AI tools persistent memory. Auto-captures architecture, conventions, and decisions so Claude, Cursor, Copilot, Windsurf & Antigravity always have the right context.",
-  "version": "1.1.3",
+  "description": "Give your AI tools persistent memory. Auto-captures architecture, conventions, and decisions so Claude, Cursor, Copilot, Windsurf, Antigravity, Cline & Gemini CLI always have the right context.",
+  "version": "1.1.8",
   "publisher": "contox",
   "icon": "resources/icon.png",
   "engines": {
@@ -20,6 +20,9 @@
     "cursor",
     "copilot",
     "windsurf",
+    "antigravity",
+    "cline",
+    "gemini",
     "context",
     "memory",
     "ai-assistant"
@@ -119,6 +122,11 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically sync contexts on save"
+        },
+        "contox.autoEnrich": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically learn from commits. When enabled, memory grows as you code. Disable to defer enrichment to manual triggers."
         },
         "contox.capture.enabled": {
           "type": "boolean",

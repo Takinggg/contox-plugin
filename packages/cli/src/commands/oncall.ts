@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { createApiClient, handleApiError } from '../lib/api.js';
+import { createApiClient, handleApiError, verifyProjectAccess } from '../lib/api.js';
 import type { ContextItem } from '../lib/api.js';
 import { findProjectConfig } from '../lib/config.js';
 
@@ -29,6 +29,9 @@ export const oncallCommand = new Command('oncall')
       process.exitCode = 1;
       return;
     }
+
+    // Pre-flight: verify access to the project
+    if (!(await verifyProjectAccess(api, projectConfig.projectId))) { return; }
 
     const since = opts.since ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 

@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import chalk from 'chalk';
-import { createApiClient, handleApiError } from '../lib/api.js';
+import { createApiClient, handleApiError, verifyProjectAccess } from '../lib/api.js';
 import type { ContextItem } from '../lib/api.js';
 import { findProjectConfig } from '../lib/config.js';
 
@@ -29,8 +29,11 @@ export const pullCommand = new Command('pull')
       return;
     }
 
+    // Pre-flight: verify access to the project
+    if (!(await verifyProjectAccess(api, projectId))) { return; }
+
     try {
-      const res = await api.get(`/api/contexts?projectId=${projectId}`);
+      const res = await api.get(`/api/contexts?projectId=${encodeURIComponent(projectId)}`);
 
       if (!res.ok) {
         await handleApiError(res, 'Failed to fetch contexts');

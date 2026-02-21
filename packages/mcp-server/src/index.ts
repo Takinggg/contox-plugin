@@ -3,7 +3,7 @@
 /* ═══════════════════════════════════════════════════════════════════════════════
  * Contox MCP Server — Persistent AI Project Memory (V2 Pipeline)
  *
- * 23 tools for full brain management:
+ * 27 tools for full brain management:
  * - contox_get_memory      → Load V2 brain document (structured memory items)
  * - contox_save_session    → Save session via V2 ingest pipeline
  * - contox_list/get/create/update/delete → CRUD operations
@@ -22,6 +22,10 @@
  * - contox_git_digest      → Read git commits since last save for Claude enrichment
  * - contox_hygiene         → Memory hygiene agent (analyze + apply)
  * - contox_auto_resolve    → Auto-resolve memory items from committed fixes
+ * - contox_drift_check     → Architecture drift detection against conventions
+ * - contox_changelog       → Auto-generated project changelog from sessions
+ * - contox_impact_radar     → Change impact analysis across modules
+ * - contox_onboarding_guide → Smart onboarding guide from brain data
  * ═══════════════════════════════════════════════════════════════════════════════ */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -43,21 +47,38 @@ import { assembleContextPack } from './lib/context-pack.js';
 
 const server = new McpServer({
   name: 'contox',
-  version: '1.1.0',
+  version: '1.1.1',
 });
 
-// Clients are initialized in main() via resolveProject() before server.connect()
-let client!: ContoxApiClient;
-let v2Client!: V2Client;
+// Clients are initialized in main() via resolveProject() after server.connect().
+// Before init, proxies throw clear errors caught by each handler's try/catch.
+let initError: string | null = null;
+
+function uninitializedProxy<T extends object>(label: string): T {
+  return new Proxy({} as T, {
+    get(): never {
+      throw new Error(
+        initError
+          ? `Contox MCP not configured: ${initError}\n\nSet CONTOX_API_KEY and CONTOX_TEAM_ID in your MCP server environment variables.`
+          : `Contox MCP: ${label} not yet initialized.`,
+      );
+    },
+  });
+}
+
+let client: ContoxApiClient = uninitializedProxy<ContoxApiClient>('client');
+let v2Client: V2Client = uninitializedProxy<V2Client>('v2Client');
 
 /* ── Tool 1: Get Project Memory ───────────────────────────────────────────── */
 server.tool(
   'contox_get_memory',
   `Load the complete project memory. Call this at the START of every session to remember previous work. Returns a markdown document with: Architecture, Conventions, Implementation Log, Decisions, Bugs & Fixes, Todo, and Session Log.`,
-  {},
-  async () => {
+  {
+    activeFiles: z.array(z.string()).optional().describe('Currently open file paths — boosts memory items referencing these files'),
+  },
+  async (params) => {
     try {
-      const brain = await v2Client.getBrain();
+      const brain = await v2Client.getBrain({ activeFiles: params.activeFiles });
 
       // Use compact brain (~3K tokens) instead of full brain (~20K+ tokens)
       // AI should use contox_search for specific topics
@@ -835,6 +856,7 @@ Falls back to full brain if semantic search is unavailable.`,
     task: z.string().describe('Current task description — used for semantic search'),
     scope: z.enum(['full', 'relevant', 'minimal']).default('relevant').describe('How much context to include'),
     tokenBudget: z.number().default(4000).describe('Approximate token budget for the pack'),
+    activeFiles: z.array(z.string()).optional().describe('Currently open file paths — boosts memory items referencing these files'),
   },
   async (params) => {
     try {
@@ -842,6 +864,7 @@ Falls back to full brain if semantic search is unavailable.`,
         task: params.task,
         scope: params.scope,
         tokenBudget: params.tokenBudget,
+        activeFiles: params.activeFiles,
       });
 
       return {
@@ -872,13 +895,6 @@ Requires embeddings to exist (run a Genesis scan first).`,
   },
   async (params) => {
     try {
-      if (!v2Client) {
-        return {
-          content: [{ type: 'text', text: 'Error: V2 API not configured. Set CONTOX_API_KEY and CONTOX_PROJECT_ID.' }],
-          isError: true,
-        };
-      }
-
       const result = await v2Client.ask(params.question);
 
       const lines = [
@@ -1004,7 +1020,7 @@ Each action has a confidence score and requiresHumanApproval flag.`,
       if (report.warnings.length > 0) {
         lines.push('', 'Warnings:');
         for (const w of report.warnings) {
-          lines.push(`  ⚠ ${w}`);
+          lines.push(`  WARNING: ${w}`);
         }
       }
 
@@ -1115,7 +1131,7 @@ Supports dry-run mode to preview what would be resolved without making changes.`
         lines.push('');
 
         for (const item of result.resolved) {
-          const statusIcon = item.newStatus === 'archived' ? '\u2705' : '\uD83D\uDD0D';
+          const statusIcon = item.newStatus === 'archived' ? '[RESOLVED]' : '[REVIEW]';
           lines.push(`${statusIcon} **${item.title}** (${item.type})`);
           lines.push(`  - Match: ${item.matchType} | Confidence: ${String(item.confidence)}`);
           lines.push(`  - Commit: ${item.commitSha.slice(0, 7)}`);
@@ -1147,28 +1163,311 @@ Supports dry-run mode to preview what would be resolved without making changes.`
   },
 );
 
+/* ── Tool: contox_drift_check ──────────────────────────────────────────── */
+
+server.tool(
+  'contox_drift_check',
+  'Run architecture drift detection. Compares recent enriched items against established project conventions to detect violations. Returns detected drifts with severity levels. Use "check" to run analysis, "list" to view existing drift problems.',
+  {
+    action: z.enum(['check', 'list']).describe(
+      '"check" to run drift analysis on recent items, "list" to view existing drift problems',
+    ),
+  },
+  async (params: { action: string }) => {
+    if (!v2Client) {
+      return {
+        content: [{ type: 'text' as const, text: initError ? `Not configured: ${initError}` : 'Not configured — set CONTOX_API_KEY' }],
+        isError: true,
+      };
+    }
+
+    try {
+      if (params.action === 'list') {
+        const result = await v2Client.getDriftProblems();
+        if (result.problems.length === 0) {
+          return { content: [{ type: 'text' as const, text: 'No drift problems found for this project.' }] };
+        }
+
+        const lines: string[] = [
+          `# Drift Problems (${String(result.total)})`,
+          '',
+        ];
+        for (const p of result.problems) {
+          const icon = p.severity === 'critical' ? '🔴' : p.severity === 'high' ? '🟠' : p.severity === 'medium' ? '🟡' : '🔵';
+          lines.push(`${icon} **[${p.severity.toUpperCase()}]** ${p.description}`);
+          lines.push(`  Status: ${p.status} | Created: ${p.createdAt.split('T')[0] ?? p.createdAt}`);
+          if (p.itemIds.length > 0) {
+            lines.push(`  Related items: ${p.itemIds.join(', ')}`);
+          }
+          lines.push('');
+        }
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      }
+
+      // Default: run drift check
+      const result = await v2Client.driftCheck();
+
+      const lines: string[] = [
+        '# Architecture Drift Check',
+        '',
+        result.message,
+        '',
+        `- Items checked: **${String(result.itemsChecked)}**`,
+        `- Baseline conventions: **${String(result.baselineSize)}**`,
+        `- Drifts detected: **${String(result.driftsDetected)}**`,
+      ];
+
+      if (result.details.length > 0) {
+        lines.push('');
+        lines.push('## Detected Drifts');
+        lines.push('');
+        for (const d of result.details) {
+          const icon = d.severity === 'critical' ? '🔴' : d.severity === 'high' ? '🟠' : d.severity === 'medium' ? '🟡' : '🔵';
+          lines.push(`${icon} **[${d.severity.toUpperCase()}]** Convention: "${d.convention}"`);
+          lines.push(`  Violation: ${d.violation}`);
+          if (d.files.length > 0) {
+            lines.push(`  Files: ${d.files.join(', ')}`);
+          }
+          lines.push('');
+        }
+      }
+
+      if (result.usage.promptTokens > 0) {
+        lines.push(`_LLM usage: ${String(result.usage.promptTokens)} prompt + ${String(result.usage.completionTokens)} completion tokens_`);
+      }
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error running drift check: ${String(err)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+/* ── Tool: contox_impact_radar ──────────────────────────────────────────── */
+
+server.tool(
+  'contox_impact_radar',
+  'Analyze change ripple effects across project modules. Uses brain data (module map from Genesis scan + architecture notes) to determine which modules are directly changed and which are indirectly affected (ripple effects). Returns per-module risk assessment. Requires a Genesis scan to build the module map.',
+  {
+    days: z.number().min(1).max(30).optional().describe(
+      'Number of days to analyze (default 7)',
+    ),
+  },
+  async (params: { days?: number }) => {
+    if (!v2Client) {
+      return {
+        content: [{ type: 'text' as const, text: initError ? `Not configured: ${initError}` : 'Not configured — set CONTOX_API_KEY' }],
+        isError: true,
+      };
+    }
+
+    try {
+      const result = await v2Client.analyzeImpact(params.days);
+
+      const lines: string[] = [
+        '# Impact Radar',
+        '',
+        result.message,
+        '',
+        `- Files changed: **${String(result.totalFilesChanged)}**`,
+        `- Modules affected: **${String(result.modulesAffected)}**`,
+        `- Ripple effects: **${String(result.rippleCount)}**`,
+        `- Changes analyzed: **${String(result.changesAnalyzed)}**`,
+      ];
+
+      if (result.modules.length > 0) {
+        lines.push('');
+        lines.push('## Impacted Modules');
+        lines.push('');
+        for (const m of result.modules) {
+          const icon = m.riskLevel === 'critical' ? '🔴' : m.riskLevel === 'high' ? '🟠' : m.riskLevel === 'medium' ? '🟡' : '🔵';
+          const type = m.rippleFrom.length > 0 && m.directChanges === 0 ? ' _(ripple)_' : '';
+          lines.push(`${icon} **[${m.riskLevel.toUpperCase()}]** ${m.module}${type}`);
+          lines.push(`  ${m.reason}`);
+          if (m.directChanges > 0) {
+            lines.push(`  Direct changes: ${String(m.directChanges)} file(s)`);
+          }
+          if (m.rippleFrom.length > 0) {
+            lines.push(`  Ripple from: ${m.rippleFrom.join(', ')}`);
+          }
+          if (m.files.length > 0) {
+            lines.push(`  Files: ${m.files.join(', ')}`);
+          }
+          lines.push('');
+        }
+      }
+
+      if (result.usage.promptTokens > 0) {
+        lines.push(`_LLM usage: ${String(result.usage.promptTokens)} prompt + ${String(result.usage.completionTokens)} completion tokens_`);
+      }
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error running impact analysis: ${String(err)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+/* ── Tool: contox_onboarding_guide ─────────────────────────────────────── */
+
+server.tool(
+  'contox_onboarding_guide',
+  'Generate a smart onboarding guide for the project. Creates a structured 9-section developer guide from the project\'s brain data: Project Overview, Getting Started, Architecture Guide, Code Conventions, Feature Inventory, Common Tasks, Key Files, Gotchas, and Glossary. Uses LLM to synthesize brain data into readable prose.',
+  {},
+  async () => {
+    if (!v2Client) {
+      return {
+        content: [{ type: 'text' as const, text: initError ? `Not configured: ${initError}` : 'Not configured — set CONTOX_API_KEY' }],
+        isError: true,
+      };
+    }
+
+    try {
+      const result = await v2Client.generateOnboardingGuide();
+
+      const lines: string[] = [
+        `# ${result.projectName} — Onboarding Guide`,
+        '',
+        `> Generated: ${result.guide.generatedAt.split('T')[0] ?? result.guide.generatedAt}`,
+        `> Based on ${String(result.guide.itemsUsed)} memory items`,
+        '',
+      ];
+
+      for (const section of result.guide.sections) {
+        lines.push(`## ${section.title}`);
+        lines.push('');
+        lines.push(section.content);
+        lines.push('');
+        if (section.keyFiles.length > 0) {
+          lines.push('**Key files:**');
+          for (const f of section.keyFiles) { lines.push(`- \`${f}\``); }
+          lines.push('');
+        }
+      }
+
+      lines.push('---');
+      lines.push(`_${String(result.guide.usage.promptTokens + result.guide.usage.completionTokens)} tokens used_`);
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error generating onboarding guide: ${String(err)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+/* ── Tool: contox_changelog ────────────────────────────────────────────── */
+
+server.tool(
+  'contox_changelog',
+  'Get the auto-generated project changelog. Aggregates session-level changelogs into daily entries with audience mode filtering. Modes: "developer" (technical details), "product" (features & impact), "executive" (business value).',
+  {
+    mode: z.enum(['developer', 'product', 'executive']).optional().describe(
+      'Audience mode for changelog output. Default: "developer"',
+    ),
+    days: z.number().optional().describe(
+      'Number of days to include. Default: 30',
+    ),
+  },
+  async (params: { mode?: string; days?: number }) => {
+    if (!v2Client) {
+      return {
+        content: [{ type: 'text' as const, text: initError ? `Not configured: ${initError}` : 'Not configured — set CONTOX_API_KEY' }],
+        isError: true,
+      };
+    }
+
+    try {
+      const mode = params.mode ?? 'developer';
+      const days = params.days ?? 30;
+      const result = await v2Client.getChangelog({ mode, days });
+
+      if (result.entries.length === 0) {
+        return { content: [{ type: 'text' as const, text: `No changelog entries in the last ${String(days)} days. Changelogs are auto-generated from enriched development sessions.` }] };
+      }
+
+      const lines: string[] = [
+        `# Project Changelog (${mode}, last ${String(days)} days)`,
+        '',
+        `**${String(result.total)} day(s)** with activity`,
+        '',
+      ];
+
+      for (const entry of result.entries) {
+        lines.push(`## ${entry.date}`);
+        lines.push('');
+        lines.push(`*${String(entry.sessionCount)} session(s) | ${String(entry.filesModified.length)} files*`);
+        lines.push('');
+        lines.push(entry.summary);
+        lines.push('');
+
+        if (entry.changelog) {
+          lines.push(entry.changelog);
+          lines.push('');
+        }
+
+        if (entry.risks.length > 0) {
+          lines.push('**Risks:**');
+          for (const r of entry.risks) { lines.push(`- ⚠️ ${r}`); }
+          lines.push('');
+        }
+
+        if (entry.impacts.length > 0) {
+          lines.push('**Impacts:**');
+          for (const imp of entry.impacts) { lines.push(`- ✅ ${imp}`); }
+          lines.push('');
+        }
+
+        lines.push('---');
+        lines.push('');
+      }
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error fetching changelog: ${String(err)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
 /* ── Start Server ──────────────────────────────────────────────────────── */
 
 async function main(): Promise<void> {
-  // Resolve project from .contox.json / git repo name / env vars
-  const resolved = await resolveProject({
-    apiKey: process.env['CONTOX_API_KEY'],
-    apiUrl: process.env['CONTOX_API_URL'],
-    teamId: process.env['CONTOX_TEAM_ID'],
-    projectId: process.env['CONTOX_PROJECT_ID'],
-  });
-  client = new ContoxApiClient(resolved);
-
-  // Initialize V2 client (per-project secret from setup, then legacy env vars)
-  v2Client = new V2Client({
-    apiKey: resolved.apiKey ?? '',
-    apiUrl: resolved.apiUrl,
-    projectId: resolved.projectId ?? '',
-    hmacSecret: process.env['CONTOX_HMAC_SECRET'] ?? process.env['V2_HMAC_SECRET_MCP'] ?? process.env['V2_HMAC_SECRET'],
-  });
-
+  // Connect transport FIRST so the MCP client doesn't get a broken pipe
   const transport = new StdioServerTransport();
   await server.connect(transport);
+
+  // Then try to resolve the project — if this fails, tools return helpful errors
+  try {
+    const resolved = await resolveProject({
+      apiKey: process.env['CONTOX_API_KEY'],
+      apiUrl: process.env['CONTOX_API_URL'],
+      teamId: process.env['CONTOX_TEAM_ID'],
+      projectId: process.env['CONTOX_PROJECT_ID'],
+    });
+    client = new ContoxApiClient(resolved);
+
+    // Initialize V2 client (per-project secret from setup, then legacy env vars)
+    v2Client = new V2Client({
+      apiKey: resolved.apiKey ?? '',
+      apiUrl: resolved.apiUrl,
+      projectId: resolved.projectId ?? '',
+      hmacSecret: process.env['CONTOX_HMAC_SECRET'] ?? process.env['V2_HMAC_SECRET_MCP'] ?? process.env['V2_HMAC_SECRET'],
+    });
+  } catch (err) {
+    initError = err instanceof Error ? err.message : String(err);
+    console.error(`[contox-mcp] Initialization failed: ${initError}`);
+  }
 }
 
 main().catch((err: unknown) => {

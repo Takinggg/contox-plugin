@@ -6,6 +6,7 @@ import { ContoxClient, ContoxProject, ContoxTeam } from '../api/client';
 import { ContextTreeProvider } from '../providers/context-tree';
 import { StatusBarManager } from '../providers/status-bar';
 import { getMcpServerPath } from '../lib/mcp-deployer';
+import { writeContoxRc } from '../lib/contoxrc-crypto';
 
 /* ═══════════════════════════════════════════════════════════════════════════════
  * Setup Wizard — Guided onboarding webview panel
@@ -102,6 +103,12 @@ async function handleMessage(
   };
 
   switch (message.type) {
+    case 'openDashboard': {
+      const apiUrl = vscode.workspace.getConfiguration('contox').get<string>('apiUrl', 'https://contox.dev');
+      void vscode.env.openExternal(vscode.Uri.parse(`${apiUrl}/dashboard/cli`));
+      break;
+    }
+
     case 'login': {
       if (!message.apiKey) {
         post({ type: 'loginResult', success: false, error: 'No API key provided' });
@@ -258,7 +265,7 @@ async function handleMessage(
       // Configure Windsurf (MCP server via global config)
       if (tools.includes('windsurf')) {
         try {
-          configureWindsurf(apiKey, apiUrl, teamId, extensionContext);
+          configureWindsurf(apiKey, apiUrl, teamId, hmacSecret, extensionContext);
           results.push('Windsurf MCP server configured');
         } catch (err) {
           results.push(`Windsurf: ${String(err)}`);
@@ -268,10 +275,30 @@ async function handleMessage(
       // Configure Antigravity (MCP server via ~/.gemini/antigravity/mcp_config.json)
       if (tools.includes('antigravity')) {
         try {
-          configureAntigravity(apiKey, apiUrl, teamId, projectId, extensionContext);
+          configureAntigravity(apiKey, apiUrl, teamId, projectId, hmacSecret, extensionContext);
           results.push('Antigravity MCP server configured');
         } catch (err) {
           results.push(`Antigravity: ${String(err)}`);
+        }
+      }
+
+      // Configure Cline (MCP server via globalStorage)
+      if (tools.includes('cline')) {
+        try {
+          configureCline(apiKey, apiUrl, teamId, projectId, hmacSecret, extensionContext);
+          results.push('Cline MCP server configured');
+        } catch (err) {
+          results.push(`Cline: ${String(err)}`);
+        }
+      }
+
+      // Configure Gemini CLI (MCP server via ~/.gemini/settings.json)
+      if (tools.includes('gemini-cli')) {
+        try {
+          configureGeminiCli(apiKey, apiUrl, teamId, projectId, hmacSecret, extensionContext);
+          results.push('Gemini CLI MCP server configured');
+        } catch (err) {
+          results.push(`Gemini CLI: ${String(err)}`);
         }
       }
 
@@ -293,9 +320,9 @@ async function handleMessage(
         const scanApiKey = await client.getApiKey() ?? '';
         const scanApiUrl = vscode.workspace.getConfiguration('contox').get<string>('apiUrl', 'https://contox.dev');
 
-        // Write ~/.contoxrc so the CLI can authenticate
+        // Write ~/.contoxrc so the CLI can authenticate (encrypted)
         const contoxRcPath = path.join(os.homedir(), '.contoxrc');
-        fs.writeFileSync(contoxRcPath, JSON.stringify({ apiKey: scanApiKey, apiUrl: scanApiUrl }, null, 2), 'utf-8');
+        writeContoxRc({ apiKey: scanApiKey, apiUrl: scanApiUrl });
 
         const terminal = vscode.window.createTerminal('Contox Scan');
         terminal.sendText('node packages/cli/dist/index.js scan');
@@ -333,8 +360,10 @@ export function configureAllMcp(
   configureClaude(apiKey, apiUrl, teamId, projectId, rootPath, hmacSecret, extensionContext);
   configureCursor(apiKey, apiUrl, teamId, projectId, rootPath, hmacSecret, extensionContext);
   configureCopilot(apiKey, apiUrl, teamId, projectId, rootPath, hmacSecret, extensionContext);
-  configureWindsurf(apiKey, apiUrl, teamId, extensionContext);
-  configureAntigravity(apiKey, apiUrl, teamId, projectId, extensionContext);
+  configureWindsurf(apiKey, apiUrl, teamId, hmacSecret, extensionContext);
+  configureAntigravity(apiKey, apiUrl, teamId, projectId, hmacSecret, extensionContext);
+  configureCline(apiKey, apiUrl, teamId, projectId, hmacSecret, extensionContext);
+  configureGeminiCli(apiKey, apiUrl, teamId, projectId, hmacSecret, extensionContext);
 }
 
 /* ── Internal helpers ──────────────────────────────────────────────────── */
@@ -447,6 +476,7 @@ function configureWindsurf(
   apiKey: string,
   apiUrl: string,
   teamId: string,
+  hmacSecret: string | undefined,
   extensionContext: vscode.ExtensionContext,
 ): void {
   // Windsurf uses a global config — no CONTOX_PROJECT_ID (resolved from .contox.json in cwd)
@@ -454,7 +484,7 @@ function configureWindsurf(
   if (!fs.existsSync(windsurfDir)) { fs.mkdirSync(windsurfDir, { recursive: true }); }
 
   const mcpServerPath = getMcpServerPath(extensionContext);
-  const env = buildMcpEnv(apiKey, apiUrl, teamId);
+  const env = buildMcpEnv(apiKey, apiUrl, teamId, undefined, hmacSecret);
 
   mergeServerConfig(
     path.join(windsurfDir, 'mcp_config.json'),
@@ -468,6 +498,7 @@ function configureAntigravity(
   apiUrl: string,
   teamId: string,
   projectId: string,
+  hmacSecret: string | undefined,
   extensionContext: vscode.ExtensionContext,
 ): void {
   // Antigravity uses a global config at ~/.gemini/antigravity/mcp_config.json
@@ -476,7 +507,7 @@ function configureAntigravity(
   if (!fs.existsSync(antigravityDir)) { fs.mkdirSync(antigravityDir, { recursive: true }); }
 
   const mcpServerPath = getMcpServerPath(extensionContext);
-  const env = buildMcpEnv(apiKey, apiUrl, teamId, projectId);
+  const env = buildMcpEnv(apiKey, apiUrl, teamId, projectId, hmacSecret);
 
   mergeServerConfig(
     path.join(antigravityDir, 'mcp_config.json'),
@@ -486,6 +517,52 @@ function configureAntigravity(
 
   // Deploy Contox Skill to workspace so Gemini knows to use Contox MCP tools
   deployContoxSkill();
+}
+
+function configureCline(
+  apiKey: string,
+  apiUrl: string,
+  teamId: string,
+  projectId: string,
+  hmacSecret: string | undefined,
+  extensionContext: vscode.ExtensionContext,
+): void {
+  // Cline stores MCP config in its globalStorage: .../globalStorage/saoudrizwan.claude-dev/settings/
+  // Derive the path from our own globalStorage path
+  const globalStorageDir = path.dirname(extensionContext.globalStorageUri.fsPath);
+  const clineSettingsDir = path.join(globalStorageDir, 'saoudrizwan.claude-dev', 'settings');
+  if (!fs.existsSync(clineSettingsDir)) { fs.mkdirSync(clineSettingsDir, { recursive: true }); }
+
+  const mcpServerPath = getMcpServerPath(extensionContext);
+  const env = buildMcpEnv(apiKey, apiUrl, teamId, projectId, hmacSecret);
+
+  mergeServerConfig(
+    path.join(clineSettingsDir, 'cline_mcp_settings.json'),
+    'contox',
+    { command: 'node', args: [mcpServerPath], env },
+  );
+}
+
+function configureGeminiCli(
+  apiKey: string,
+  apiUrl: string,
+  teamId: string,
+  projectId: string,
+  hmacSecret: string | undefined,
+  extensionContext: vscode.ExtensionContext,
+): void {
+  // Gemini CLI uses ~/.gemini/settings.json (separate from Antigravity's mcp_config.json)
+  const geminiDir = path.join(os.homedir(), '.gemini');
+  if (!fs.existsSync(geminiDir)) { fs.mkdirSync(geminiDir, { recursive: true }); }
+
+  const mcpServerPath = getMcpServerPath(extensionContext);
+  const env = buildMcpEnv(apiKey, apiUrl, teamId, projectId, hmacSecret);
+
+  mergeServerConfig(
+    path.join(geminiDir, 'settings.json'),
+    'contox',
+    { command: 'node', args: [mcpServerPath], env },
+  );
 }
 
 /** Deploy a SKILL.md into the workspace .agent/skills/contox/ directory.
@@ -885,6 +962,24 @@ function getWebviewContent(): string {
       <button class="btn btn-primary" id="loginBtn" onclick="doLogin()">
         Connect
       </button>
+
+      <div style="display: flex; align-items: center; gap: 0.75rem; margin: 1.25rem 0;">
+        <div style="flex: 1; height: 1px; background: var(--border);"></div>
+        <span style="font-size: 0.75rem; color: var(--text-dim);">or</span>
+        <div style="flex: 1; height: 1px; background: var(--border);"></div>
+      </div>
+
+      <div style="text-align: center;">
+        <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.75rem;">
+          Don&apos;t have an API key?
+        </p>
+        <button class="btn btn-secondary" onclick="vscode.postMessage({ type: 'openDashboard' })" style="width: auto; padding: 0.6rem 1.5rem;">
+          Open Dashboard
+        </button>
+        <p style="color: var(--text-dim); font-size: 0.7rem; margin-top: 0.5rem;">
+          The dashboard will generate a key and auto-configure this extension
+        </p>
+      </div>
     </div>
   </div>
 
@@ -965,6 +1060,22 @@ function getWebviewContent(): string {
           <div class="info">
             <div class="name">Antigravity</div>
             <div class="desc">~/.gemini/antigravity/</div>
+          </div>
+        </label>
+        <label class="ai-tool" onclick="toggleTool(this)">
+          <input type="checkbox" value="cline" />
+          <div class="checkbox"></div>
+          <div class="info">
+            <div class="name">Cline</div>
+            <div class="desc">VS Code globalStorage</div>
+          </div>
+        </label>
+        <label class="ai-tool" onclick="toggleTool(this)">
+          <input type="checkbox" value="gemini-cli" />
+          <div class="checkbox"></div>
+          <div class="info">
+            <div class="name">Gemini CLI</div>
+            <div class="desc">~/.gemini/settings.json</div>
           </div>
         </label>
       </div>

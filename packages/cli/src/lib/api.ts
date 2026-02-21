@@ -71,3 +71,28 @@ export async function handleApiError(res: Response, label: string): Promise<void
     console.log(chalk.red('✗'), `${label}: HTTP ${String(res.status)}`);
   }
 }
+
+/**
+ * Pre-flight access check — verifies the API key can access the given project.
+ * Returns true if access is granted, false (with error message) if not.
+ */
+export async function verifyProjectAccess(
+  api: { get: (path: string) => Promise<Response> },
+  projectId: string,
+): Promise<boolean> {
+  try {
+    const res = await api.get(`/api/v2/projects/${encodeURIComponent(projectId)}`);
+    if (res.status === 401 || res.status === 403) {
+      console.log(chalk.red('✗'), 'Access denied: your API key does not have permission to access this project.');
+      return false;
+    }
+    if (res.status === 404) {
+      console.log(chalk.red('✗'), `Project not found: ${projectId}`);
+      return false;
+    }
+    return res.ok;
+  } catch {
+    // Network error — allow the main command to handle it
+    return true;
+  }
+}

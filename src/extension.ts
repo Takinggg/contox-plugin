@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { writeContoxRc } from './lib/contoxrc-crypto';
+
 import { ContoxClient } from './api/client';
 import { ContextTreeProvider } from './providers/context-tree';
 import { StatusBarManager } from './providers/status-bar';
@@ -17,7 +19,7 @@ import { registerLoadMemoryCommand, loadMemorySilent } from './commands/load-mem
 import { registerEndSessionCommand } from './commands/end-session';
 import { registerDesyncCommand, registerConnectCommand, isDesynced } from './commands/desync';
 import { ContextInjector } from './providers/context-injector';
-import { deployMcpServer } from './lib/mcp-deployer';
+import { deployMcpServer, getMcpServerPath } from './lib/mcp-deployer';
 import { configureAllMcp } from './commands/setup-wizard';
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -80,7 +82,7 @@ class ContoxUriHandler implements vscode.UriHandler {
     private readonly gitWatcher: GitWatcher,
     private readonly context: vscode.ExtensionContext,
     private readonly mcpReady: Promise<string | void>,
-  ) {}
+  ) { }
 
   async handleUri(uri: vscode.Uri): Promise<void> {
     const params = new URLSearchParams(uri.query);
@@ -91,6 +93,8 @@ class ContoxUriHandler implements vscode.UriHandler {
 
     if (uri.path === '/setup' && token) {
       await this.handleSetup(token, teamId, projectId, projectName);
+    } else if (uri.path === '/reconnect') {
+      await this.handleReconnect();
     } else if (uri.path === '/desync') {
       await vscode.commands.executeCommand('contox.desync');
     } else if (uri.path === '/connect') {
@@ -141,6 +145,66 @@ class ContoxUriHandler implements vscode.UriHandler {
     }
   }
 
+  /**
+   * Handle /reconnect deep link — force re-verify and re-configure everything.
+   * Uses existing workspace config + stored API key (no URL params needed).
+   */
+  private async handleReconnect(): Promise<void> {
+    const config = getWorkspaceConfig();
+    const apiKey = await this.client.getApiKey();
+
+    if (!config || !apiKey) {
+      void vscode.window.showWarningMessage(
+        'Contox: Not configured yet. Use "Connect IDE" from the dashboard first.',
+      );
+      return;
+    }
+
+    const wsFolders = vscode.workspace.workspaceFolders;
+    if (!wsFolders || wsFolders.length === 0) {
+      void vscode.window.showWarningMessage('Contox: Open a workspace folder first.');
+      return;
+    }
+
+    const rootPath = wsFolders[0]!.uri.fsPath;
+    const apiUrl = vscode.workspace.getConfiguration('contox').get<string>('apiUrl', 'https://contox.dev');
+
+    // Ensure MCP server binary is deployed
+    try {
+      await this.mcpReady;
+    } catch { /* already logged */ }
+
+    // Fetch HMAC secret if missing
+    let hmac = await this.context.secrets.get('contox-hmac-secret');
+    if (!hmac) {
+      try {
+        const result = await this.client.getProjectHmacSecret(config.projectId);
+        if (result.data?.hmacSecret) {
+          hmac = result.data.hmacSecret;
+          await this.context.secrets.store('contox-hmac-secret', hmac);
+        }
+      } catch { /* non-critical */ }
+    }
+
+    // Force re-configure ALL MCP configs
+    try {
+      configureAllMcp(apiKey, apiUrl, config.teamId, config.projectId, rootPath, hmac ?? undefined, this.context);
+    } catch (err) {
+      console.error('Contox: Reconnect MCP config failed:', err);
+    }
+
+    // Restart watchers
+    this.sessionWatcher.start(config.projectId);
+    this.gitWatcher.start(config.projectId);
+
+    // Re-sync
+    await vscode.commands.executeCommand('contox.sync', { silent: true });
+
+    void vscode.window.showInformationMessage(
+      `$(check) Contox: Reconnected to "${config.projectName}" — all MCP configs refreshed`,
+    );
+  }
+
   private async autoConfigureProject(
     token: string,
     teamId: string,
@@ -162,18 +226,16 @@ class ContoxUriHandler implements vscode.UriHandler {
     const config = { teamId, projectId, projectName };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
 
-    // Write ~/.contoxrc for CLI auth (includes hmacSecret for CLI V2 ingest)
+    // Write ~/.contoxrc for CLI auth (encrypted — matches CLI's AES-256-GCM scheme)
     try {
-      const rcPath = path.join(require('os').homedir(), '.contoxrc');
       const apiUrl = vscode.workspace.getConfiguration('contox').get<string>('apiUrl', 'https://contox.dev');
-      const rcConfig: Record<string, string> = {
+      writeContoxRc({
         apiKey: token,
         apiUrl,
         teamId,
         projectId,
-      };
-      if (hmacSecret) { rcConfig['hmacSecret'] = hmacSecret; }
-      fs.writeFileSync(rcPath, JSON.stringify(rcConfig, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
+        ...(hmacSecret ? { hmacSecret } : {}),
+      });
     } catch {
       // Non-critical
     }
@@ -233,6 +295,79 @@ class ContoxUriHandler implements vscode.UriHandler {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
+ * MCP Health Check — verify configs match workspace, binary exists, keys match
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Thoroughly verify MCP configuration.
+ * Returns a reason string if reconfiguration is needed, or null if everything is OK.
+ */
+function checkMcpNeedsReconfigure(
+  rootPath: string,
+  config: ContoxWorkspaceConfig,
+  apiKey: string,
+  extensionContext: vscode.ExtensionContext,
+): string | null {
+  const mcpConfigPath = path.join(rootPath, '.mcp.json');
+
+  // 1. Check if .mcp.json exists and has contox entry
+  let parsed: Record<string, unknown>;
+  try {
+    const raw = fs.readFileSync(mcpConfigPath, 'utf-8');
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return 'mcp_config_missing';
+  }
+
+  const servers = parsed['mcpServers'] as Record<string, unknown> | undefined;
+  const contox = servers?.['contox'] as Record<string, unknown> | undefined;
+  if (!contox) {
+    return 'contox_server_missing';
+  }
+
+  // 2. Check if MCP server binary exists at the configured path
+  const args = contox['args'] as string[] | undefined;
+  const configuredPath = args?.[0];
+  if (!configuredPath) {
+    return 'no_server_path';
+  }
+
+  // Old relative path format → needs update
+  if (configuredPath.includes('packages/mcp-server')) {
+    return 'old_path_format';
+  }
+
+  // Binary doesn't exist → needs redeploy + reconfig
+  if (!fs.existsSync(configuredPath)) {
+    return 'binary_missing';
+  }
+
+  // 3. Check the expected path matches current extension's globalStorage
+  const expectedPath = getMcpServerPath(extensionContext);
+  if (path.normalize(configuredPath) !== path.normalize(expectedPath)) {
+    return 'path_mismatch';
+  }
+
+  // 4. Check env vars match workspace config
+  const env = contox['env'] as Record<string, string> | undefined;
+  if (!env) {
+    return 'no_env';
+  }
+
+  if (env['CONTOX_API_KEY'] !== apiKey) {
+    return 'api_key_mismatch';
+  }
+  if (env['CONTOX_TEAM_ID'] !== config.teamId) {
+    return 'team_id_mismatch';
+  }
+  if (env['CONTOX_PROJECT_ID'] !== config.projectId) {
+    return 'project_id_mismatch';
+  }
+
+  return null; // All good
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
  * Extension lifecycle
  * ═══════════════════════════════════════════════════════════════════════════════ */
 
@@ -241,6 +376,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const mcpReady = deployMcpServer(context).catch((err) => {
     console.error('Contox: Failed to deploy MCP server:', err);
   });
+
+  const outputChannel = vscode.window.createOutputChannel('Contox');
+  context.subscriptions.push(outputChannel);
 
   const client = new ContoxClient(context.secrets);
   const treeProvider = new ContextTreeProvider(client);
@@ -270,8 +408,8 @@ export function activate(context: vscode.ExtensionContext): void {
   // Register all commands
   context.subscriptions.push(
     registerLoginCommand(client),
-    registerInitCommand(client),
-    registerSyncCommand(client, treeProvider, statusBar),
+    registerInitCommand(client, context),
+    registerSyncCommand(client, treeProvider, statusBar, outputChannel),
     registerCreateCommand(client, treeProvider, statusBar),
     registerSetupWizardCommand(client, treeProvider, statusBar, context),
     registerResetCommand(client),
@@ -307,8 +445,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
     const wsFolders = vscode.workspace.workspaceFolders;
     if (key && config && wsFolders && wsFolders.length > 0) {
-      // Already configured — auto-sync + load memory
-      await vscode.commands.executeCommand('contox.sync');
+      // Already configured — auto-sync (silent: no error toast) + load memory
+      await vscode.commands.executeCommand('contox.sync', { silent: true });
       void loadMemorySilent(client, wsFolders[0]!.uri.fsPath, config.projectId);
 
       // If user previously desynced, stay disconnected
@@ -334,42 +472,33 @@ export function activate(context: vscode.ExtensionContext): void {
       gitWatcher.start(config.projectId);
       contextInjector.start(config.projectId);
 
-      // Check if MCP is configured for AI tools — prompt if not
+      // Verify MCP is properly configured for all AI tools
       const rootPath = wsFolders[0]!.uri.fsPath;
-      const mcpConfigPath = path.join(rootPath, '.mcp.json');
-      let needsMcpSetup = true;
-      try {
-        const raw = fs.readFileSync(mcpConfigPath, 'utf-8');
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        const servers = parsed['mcpServers'] as Record<string, unknown> | undefined;
-        const contox = servers?.['contox'] as Record<string, unknown> | undefined;
-        const args = contox?.['args'] as string[] | undefined;
-        // Already configured with globalStorage path (not old relative path)
-        if (args?.[0] && !args[0].includes('packages/mcp-server')) {
-          needsMcpSetup = false;
-        }
-      } catch {
-        // .mcp.json doesn't exist or is invalid
-      }
+      const currentHmac = await context.secrets.get('contox-hmac-secret');
 
-      if (needsMcpSetup) {
-        const action = await vscode.window.showInformationMessage(
-          'Contox: Configure MCP server for your AI tools (Claude, Cursor, Copilot, Windsurf)?',
-          'Configure',
-          'Later',
-        );
-        if (action === 'Configure') {
-          openSetupWizard(client, treeProvider, statusBar, context);
+      if (key && config) {
+        const needsReconfigure = checkMcpNeedsReconfigure(rootPath, config, key, context);
+        if (needsReconfigure) {
+          try {
+            const apiUrl = vscode.workspace.getConfiguration('contox').get<string>('apiUrl', 'https://contox.dev');
+            configureAllMcp(key, apiUrl, config.teamId, config.projectId, rootPath, currentHmac ?? undefined, context);
+            console.log('Contox: MCP auto-configured for all AI tools (reason:', needsReconfigure, ')');
+          } catch (err) {
+            console.error('Contox: Failed to auto-configure MCP:', err);
+          }
         }
       }
     } else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
       // Workspace open but not configured — show a subtle prompt
       const action = await vscode.window.showInformationMessage(
         'Contox: Set up AI memory for this project?',
-        'Setup',
-        'Later',
+        'Setup from Dashboard',
+        'I Have a Key',
       );
-      if (action === 'Setup') {
+      if (action === 'Setup from Dashboard') {
+        const apiUrl = vscode.workspace.getConfiguration('contox').get<string>('apiUrl', 'https://contox.dev');
+        void vscode.env.openExternal(vscode.Uri.parse(`${apiUrl}/dashboard/cli`));
+      } else if (action === 'I Have a Key') {
         openSetupWizard(client, treeProvider, statusBar, context);
       }
     }

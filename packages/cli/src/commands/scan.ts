@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { resolve } from 'node:path';
 import { writeFileSync } from 'node:fs';
 import chalk from 'chalk';
-import { createApiClient, handleApiError } from '../lib/api.js';
+import { createApiClient, handleApiError, verifyProjectAccess } from '../lib/api.js';
 import type { ContextItem } from '../lib/api.js';
 import { findProjectConfig } from '../lib/config.js';
 import { scanProject } from '../lib/scanner.js';
@@ -157,6 +157,9 @@ async function pushSubContexts(
     return;
   }
 
+  // Pre-flight: verify access to the project
+  if (!(await verifyProjectAccess(api, projectId))) { return; }
+
   // Map sub-contexts to populate nodes, sorted by schemaKey depth so parents
   // are created before children (the populate API resolves parentSchemaKey
   // against already-processed nodes in the same batch).
@@ -253,6 +256,9 @@ async function pushFlatContext(
     console.log(`\n  ${chalk.red('✗')} No project configured. Run ${chalk.cyan('contox init')} first.\n`);
     return;
   }
+
+  // Pre-flight: verify access to the project
+  if (!(await verifyProjectAccess(api, projectId))) { return; }
 
   const contextName = '.contox-context';
 

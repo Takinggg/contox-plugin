@@ -43,6 +43,7 @@ export interface V2SearchResult {
   similarity: number;
   confidence: number;
   files: string[];
+  compositeScore?: number;
 }
 
 export interface V2SearchResponse {
@@ -123,6 +124,92 @@ export interface V2AskResponse {
   model: string;
 }
 
+export interface V2DriftDetail {
+  convention: string;
+  baselineItemId: string;
+  violation: string;
+  files: string[];
+  severity: 'critical' | 'high' | 'medium' | 'low';
+}
+
+export interface V2DriftCheckResponse {
+  message: string;
+  driftsDetected: number;
+  itemsChecked: number;
+  baselineSize: number;
+  details: V2DriftDetail[];
+  usage: { promptTokens: number; completionTokens: number };
+}
+
+export interface V2DriftProblemsResponse {
+  problems: {
+    id: string;
+    kind: 'drift';
+    description: string;
+    itemIds: string[];
+    severity: string;
+    status: string;
+    createdAt: string;
+  }[];
+  total: number;
+}
+
+export interface V2ImpactModule {
+  module: string;
+  directChanges: number;
+  rippleFrom: string[];
+  riskLevel: string;
+  reason: string;
+  files: string[];
+}
+
+export interface V2ImpactResponse {
+  message: string;
+  modules: V2ImpactModule[];
+  totalFilesChanged: number;
+  modulesAffected: number;
+  rippleCount: number;
+  changesAnalyzed: number;
+  usage: { promptTokens: number; completionTokens: number };
+}
+
+export interface V2ChangelogEntry {
+  date: string;
+  summary: string;
+  changelog: string;
+  risks: string[];
+  impacts: string[];
+  sessionCount: number;
+  filesModified: string[];
+}
+
+export interface V2ChangelogResponse {
+  entries: V2ChangelogEntry[];
+  total: number;
+  hasMore: boolean;
+  mode: string;
+  range: { since: string; until: string };
+}
+
+export interface V2OnboardingGuideSection {
+  id: string;
+  title: string;
+  content: string;
+  keyFiles: string[];
+}
+
+export interface V2OnboardingGuide {
+  sections: V2OnboardingGuideSection[];
+  generatedAt: string;
+  itemsUsed: number;
+  usage: { promptTokens: number; completionTokens: number };
+}
+
+export interface V2OnboardingGuideResponse {
+  guide: V2OnboardingGuide;
+  projectName: string;
+}
+
 export interface V2AutoResolveCommit {
   sha: string;
   message: string;
@@ -178,6 +265,7 @@ export class V2Client {
     minConfidence?: number;
     limit?: number;
     tokenBudget?: number;
+    activeFiles?: string[];
   }): Promise<V2BrainResponse> {
     const params = new URLSearchParams({ projectId: this.projectId });
     if (opts?.minConfidence !== undefined) {
@@ -188,6 +276,9 @@ export class V2Client {
     }
     if (opts?.tokenBudget !== undefined) {
       params.set('tokenBudget', String(opts.tokenBudget));
+    }
+    if (opts?.activeFiles && opts.activeFiles.length > 0) {
+      params.set('activeFiles', opts.activeFiles.join(','));
     }
 
     const headers: Record<string, string> = {};
@@ -225,6 +316,7 @@ export class V2Client {
   async search(query: string, opts?: {
     limit?: number;
     minSimilarity?: number;
+    activeFiles?: string[];
   }): Promise<V2SearchResponse> {
     const params = new URLSearchParams({
       projectId: this.projectId,
@@ -235,6 +327,10 @@ export class V2Client {
     }
     if (opts?.minSimilarity !== undefined) {
       params.set('minSimilarity', String(opts.minSimilarity));
+    }
+    if (opts?.activeFiles && opts.activeFiles.length > 0) {
+      params.set('activeFiles', opts.activeFiles.join(','));
+      params.set('useCompositeScore', 'true');
     }
 
     return this.request<V2SearchResponse>(`/v2/search?${params.toString()}`);
@@ -347,6 +443,57 @@ export class V2Client {
         dryRun: dryRun ?? false,
       }),
     });
+  }
+
+  // ── Drift Check ──────────────────────────────────────────────────────
+
+  async driftCheck(): Promise<V2DriftCheckResponse> {
+    return this.request<V2DriftCheckResponse>(
+      `/v2/projects/${encodeURIComponent(this.projectId)}/drift-check`,
+      { method: 'POST' },
+    );
+  }
+
+  async getDriftProblems(): Promise<V2DriftProblemsResponse> {
+    return this.request<V2DriftProblemsResponse>(
+      `/v2/projects/${encodeURIComponent(this.projectId)}/drift-check`,
+    );
+  }
+
+  // ── Onboarding Guide ─────────────────────────────────────────────────
+
+  async generateOnboardingGuide(): Promise<V2OnboardingGuideResponse> {
+    return this.request<V2OnboardingGuideResponse>(
+      `/v2/projects/${encodeURIComponent(this.projectId)}/onboarding-guide`,
+      { method: 'POST' },
+    );
+  }
+
+  // ── Changelog ────────────────────────────────────────────────────────
+
+  async getChangelog(opts?: {
+    mode?: string;
+    days?: number;
+  }): Promise<V2ChangelogResponse> {
+    const since = new Date(Date.now() - (opts?.days ?? 30) * 24 * 60 * 60 * 1000).toISOString();
+    const params = new URLSearchParams({
+      mode: opts?.mode ?? 'developer',
+      since,
+      limit: '200',
+    });
+    return this.request<V2ChangelogResponse>(
+      `/v2/projects/${encodeURIComponent(this.projectId)}/changelog?${params.toString()}`,
+    );
+  }
+
+  // ── Impact Radar ──────────────────────────────────────────────────────
+
+  async analyzeImpact(days?: number): Promise<V2ImpactResponse> {
+    const qs = days ? `?days=${String(days)}` : '';
+    return this.request<V2ImpactResponse>(
+      `/v2/projects/${encodeURIComponent(this.projectId)}/impact${qs}`,
+      { method: 'POST' },
+    );
   }
 
   // ── Ask ────────────────────────────────────────────────────────────────

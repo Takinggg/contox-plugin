@@ -12,6 +12,7 @@ export interface ContextPackOptions {
   task: string;
   scope: 'full' | 'relevant' | 'minimal';
   tokenBudget: number;
+  activeFiles?: string[];
 }
 
 /** Rough token estimate: 1 token ≈ 4 chars */
@@ -40,7 +41,7 @@ export async function assembleContextPack(
 
   if (scope === 'full') {
     // Full brain document, pre-budgeted by the assembler
-    const brain = await v2.getBrain({ tokenBudget: remainingBudget });
+    const brain = await v2.getBrain({ tokenBudget: remainingBudget, activeFiles: opts.activeFiles });
     parts.push(brain.document);
 
     const layers = brain.layers
@@ -73,7 +74,7 @@ export async function assembleContextPack(
   // scope === 'relevant': project brief + semantic search
   // Always prepend project brief for baseline context
   try {
-    const brain = await v2.getBrain();
+    const brain = await v2.getBrain({ activeFiles: opts.activeFiles });
     if (brain.summary) {
       parts.push(brain.summary);
       parts.push('');
@@ -85,12 +86,12 @@ export async function assembleContextPack(
   let searchResults: V2SearchResult[] = [];
 
   try {
-    const searchResponse = await v2.search(task, { limit: 15, minSimilarity: 0.6 });
+    const searchResponse = await v2.search(task, { limit: 15, minSimilarity: 0.6, activeFiles: opts.activeFiles });
     searchResults = searchResponse.results;
   } catch {
     // Semantic search unavailable — fall back to full brain
     try {
-      const brain = await v2.getBrain({ tokenBudget: remainingBudget });
+      const brain = await v2.getBrain({ tokenBudget: remainingBudget, activeFiles: opts.activeFiles });
       parts.push(brain.document);
       parts.push(`\n---\n_Fallback: full brain (search unavailable) | ~${String(estimateTokens(parts.join('\n')))} tokens_`);
       return parts.join('\n');
@@ -102,7 +103,7 @@ export async function assembleContextPack(
 
   if (searchResults.length === 0) {
     // No relevant results — return minimal brain
-    const brain = await v2.getBrain({ limit: 20, tokenBudget: remainingBudget });
+    const brain = await v2.getBrain({ limit: 20, tokenBudget: remainingBudget, activeFiles: opts.activeFiles });
     parts.push(brain.document);
     parts.push(`\n---\n_No semantic matches — showing top items | ~${String(estimateTokens(parts.join('\n')))} tokens_`);
     return parts.join('\n');
@@ -155,7 +156,10 @@ function formatItem(item: { title: string; facts: string; confidence: number; sc
 function formatSearchResult(r: V2SearchResult): string {
   const lines: string[] = [];
   lines.push(`### ${r.title}`);
-  lines.push(`> similarity: ${r.similarity.toFixed(3)} | confidence: ${r.confidence.toFixed(2)} | ${r.type}`);
+  const scorePart = r.compositeScore !== undefined
+    ? `score: ${r.compositeScore.toFixed(3)} | similarity: ${r.similarity.toFixed(3)}`
+    : `similarity: ${r.similarity.toFixed(3)}`;
+  lines.push(`> ${scorePart} | confidence: ${r.confidence.toFixed(2)} | ${r.type}`);
   if (r.files.length > 0) {
     lines.push(`> files: ${r.files.slice(0, 5).join(', ')}`);
   }

@@ -5,12 +5,16 @@ import * as vscode from 'vscode';
  * IDE DETECTION — detect which VS Code fork is running
  * ═══════════════════════════════════════════════════════════════════════════════ */
 
-/** Detect the current IDE from vscode.env.appName */
+/** Detect the current IDE from vscode.env properties */
 export function detectIdeSource(): string {
   const name = vscode.env.appName.toLowerCase();
-  if (name.includes('cursor')) { return 'cursor'; }
-  if (name.includes('windsurf')) { return 'windsurf'; }
-  if (name.includes('antigravity')) { return 'antigravity'; }
+  const scheme = (vscode.env.uriScheme ?? '').toLowerCase();
+  const host = ((vscode.env as Record<string, unknown>)['appHost'] as string ?? '').toLowerCase();
+  const all = `${name} ${scheme} ${host}`;
+
+  if (all.includes('cursor')) { return 'cursor'; }
+  if (all.includes('windsurf')) { return 'windsurf'; }
+  if (all.includes('antigravity') || all.includes('gemini')) { return 'antigravity'; }
   return 'vscode';
 }
 
@@ -97,6 +101,13 @@ interface ApiResponse<T> {
   error?: string;
 }
 
+/** Unwrap Node/undici "fetch failed" errors which hide the real cause. */
+function unwrapFetchError(err: unknown): string {
+  if (!(err instanceof Error)) { return 'Unknown error'; }
+  const cause = (err as Error & { cause?: Error }).cause;
+  return cause ? `${err.message}: ${cause.message}` : err.message;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════════
  * API CLIENT
  * ═══════════════════════════════════════════════════════════════════════════════ */
@@ -162,8 +173,7 @@ export class ContoxClient {
       const data = await response.json() as T;
       return { data };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      return { error: message };
+      return { error: unwrapFetchError(err) };
     }
   }
 
@@ -376,8 +386,8 @@ export class ContoxClient {
 
   /**
    * Send captured events to the V2 ingest endpoint.
-   * Signs the payload with HMAC-SHA256 and sets skipEnrichment=true
-   * so enrichment is deferred to user action in the Dashboard Inbox.
+   * Signs the payload with HMAC-SHA256. Auto-enrichment is enabled by default
+   * so memory grows automatically from commits (server-side rate limited).
    *
    * POST /api/v2/ingest
    */
@@ -385,6 +395,7 @@ export class ContoxClient {
     projectId: string,
     event: VsCodeCaptureEvent,
     hmacSecret: string,
+    options?: { skipEnrichment?: boolean },
   ): Promise<ApiResponse<IngestResponse>> {
     const eventPayload = JSON.stringify(event);
     const source = detectIdeSource();
@@ -398,15 +409,19 @@ export class ContoxClient {
       .update(signingPayload)
       .digest('hex');
 
-    const body = {
+    const body: Record<string, unknown> = {
       source,
       timestamp,
       nonce,
       signature,
       projectId,
       event,
-      skipEnrichment: true,
+      extensionVersion: vscode.extensions.getExtension('contox.contox-vscode')?.packageJSON?.version as string | undefined,
     };
+    // Only send skipEnrichment when explicitly opted out (default: auto-enrich)
+    if (options?.skipEnrichment) {
+      body['skipEnrichment'] = true;
+    }
 
     const key = await this.getApiKey();
     if (!key) {
@@ -418,12 +433,12 @@ export class ContoxClient {
     try {
       const response = await fetch(url, {
         method: 'POST',
+        signal: AbortSignal.timeout(ContoxClient.REQUEST_TIMEOUT_MS),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${key}`,
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(ContoxClient.REQUEST_TIMEOUT_MS),
       });
 
       if (!response.ok) {
@@ -435,8 +450,7 @@ export class ContoxClient {
       const data = await response.json() as IngestResponse;
       return { data };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      return { error: message };
+      return { error: unwrapFetchError(err) };
     }
   }
 }
