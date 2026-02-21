@@ -4,6 +4,9 @@
  * Builds a focused markdown document that fits within a token budget.
  * Uses semantic search for "relevant" scope, full brain for "full",
  * and top-confidence items for "minimal".
+ *
+ * Output is structured into categories (Conventions, Decisions, Bugs, etc.)
+ * for maximum actionability by the AI agent.
  * ═══════════════════════════════════════════════════════════════════════════════ */
 
 import type { V2Client, V2SearchResult } from '../api/v2-client.js';
@@ -18,6 +21,26 @@ export interface ContextPackOptions {
 /** Rough token estimate: 1 token ≈ 4 chars */
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
+}
+
+/** Map schemaKey prefixes to human-readable category labels */
+const CATEGORY_LABELS: Record<string, string> = {
+  'root/conventions': 'Conventions',
+  'root/decisions': 'Decisions',
+  'root/bugs': 'Known Issues & Bugs',
+  'root/architecture': 'Architecture',
+  'root/implementation': 'Implementation Notes',
+  'root/api': 'API & Endpoints',
+  'root/frontend': 'Frontend',
+  'root/security': 'Security',
+  'root/stack': 'Tech Stack',
+  'root/todo': 'Todos',
+  'root/cortex': 'Current Focus',
+};
+
+function getCategoryLabel(schemaKey: string): string {
+  const prefix = schemaKey.split('/').slice(0, 2).join('/');
+  return CATEGORY_LABELS[prefix] ?? prefix.split('/').pop()?.replace(/^./, (c) => c.toUpperCase()) ?? 'Other';
 }
 
 /**
@@ -71,7 +94,7 @@ export async function assembleContextPack(
     return parts.join('\n');
   }
 
-  // scope === 'relevant': project brief + semantic search
+  // scope === 'relevant': project brief + semantic search with structured output
   // Always prepend project brief for baseline context
   try {
     const brain = await v2.getBrain({ activeFiles: opts.activeFiles });
@@ -109,18 +132,30 @@ export async function assembleContextPack(
     return parts.join('\n');
   }
 
-  // Group results by schemaKey prefix
+  // Group results by category (schemaKey prefix)
   const groups = new Map<string, V2SearchResult[]>();
   for (const r of searchResults) {
-    const prefix = r.schemaKey.split('/').slice(0, 2).join('/');
-    const group = groups.get(prefix) ?? [];
+    const label = getCategoryLabel(r.schemaKey);
+    const group = groups.get(label) ?? [];
     group.push(r);
-    groups.set(prefix, group);
+    groups.set(label, group);
   }
 
-  for (const [groupKey, items] of groups) {
-    const label = groupKey.split('/').pop() ?? groupKey;
-    const sectionHeader = `## ${label.charAt(0).toUpperCase()}${label.slice(1)}\n`;
+  // Render groups in priority order: Conventions first, then Decisions, Bugs, etc.
+  const priorityOrder = [
+    'Conventions', 'Decisions', 'Known Issues & Bugs', 'Architecture',
+    'Tech Stack', 'API & Endpoints', 'Frontend', 'Security',
+    'Implementation Notes', 'Current Focus', 'Todos',
+  ];
+
+  const sortedGroups = [...groups.entries()].sort((a, b) => {
+    const aIdx = priorityOrder.indexOf(a[0]);
+    const bIdx = priorityOrder.indexOf(b[0]);
+    return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+  });
+
+  for (const [label, items] of sortedGroups) {
+    const sectionHeader = `## ${label}\n`;
 
     if (estimateTokens(parts.join('\n') + sectionHeader) > tokenBudget) {
       break;

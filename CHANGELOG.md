@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.1.9] — 2026-02-21
+
+### Added
+- **Smart agent config injection**: `inject-rules.ts` now differentiates between MCP-capable and non-MCP agents, injecting appropriate instructions (MCP protocol vs file-based) with an optional project brief from the brain summary.
+- **Composite search scoring**: `searchMemory()` now accepts `activeFiles` parameter. When provided, the API uses composite scoring with file-overlap boosting for more relevant results.
+- **Context Injector V2**: the context injector passes the current file path as `activeFiles` to `searchMemory()`, improving the relevance of auto-injected context in `.contox/context.md`.
+
+### Changed
+- `injectAllRuleFiles()` now accepts an optional `brainSummary` parameter to inject project-specific context into all agent config files.
+- Each rule target now declares `hasMcp: boolean` to determine which instruction mode to use.
+
 ## [1.1.8] — 2026-02-21
 
 ### Added

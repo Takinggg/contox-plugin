@@ -134,7 +134,8 @@ export class ContextInjector implements vscode.Disposable {
 
     try {
       this.lastApiCall = Date.now();
-      const result = await this.client.searchMemory(this.projectId, query, MAX_RESULTS);
+      // Pass activeFiles for composite scoring (file overlap boost)
+      const result = await this.client.searchMemory(this.projectId, query, MAX_RESULTS, [relativePath]);
 
       if (result.error || !result.data) { return; }
 

@@ -42,8 +42,8 @@ import { scanProject } from './lib/scanner.js';
 import { buildSubContexts, countTokens } from './lib/context-builder.js';
 import { getGitDigest, formatDigest } from './lib/git-digest.js';
 import { resolveProject } from './lib/project-resolver.js';
-import { updateClaudeMd } from './lib/claude-md.js';
 import { assembleContextPack } from './lib/context-pack.js';
+import { syncAllAgentConfigs } from './lib/sync-agent-configs.js';
 
 const server = new McpServer({
   name: 'contox',
@@ -147,13 +147,9 @@ The session log is updated automatically. Content is APPENDED to existing sub-co
         headCommitSha: params.headCommitSha,
       });
 
-      // Post-save: update CLAUDE.md with V2 brain summary (fire-and-forget)
-      v2Client.getBrain()
-        .then((brain) => { updateClaudeMd(process.cwd(), client, brain.document, brain.summary).catch(() => { /* non-critical */ }); })
-        .catch(() => {
-          // V2 brain failed — fall back to V1
-          updateClaudeMd(process.cwd(), client).catch(() => { /* non-critical */ });
-        });
+      // Post-save: sync ALL agent config files (CLAUDE.md + .cursorrules + .windsurfrules + etc.)
+      syncAllAgentConfigs(process.cwd(), client, v2Client)
+        .catch(() => { /* non-critical */ });
 
       // Post-save: auto-resolve memory items that match committed files (fire-and-forget)
       let autoResolveNote = '';
@@ -845,6 +841,8 @@ Uses SHA-based range tracking (not dates) for reliable incremental digests. The 
 server.tool(
   'contox_context_pack',
   `Build a focused context pack for the current task. Uses V2 semantic search to find the most relevant memory items and assembles a token-budgeted markdown document.
+
+RECOMMENDED: Build a focused context pack BEFORE starting any coding task. This tool uses semantic search to find architecture decisions, conventions, known bugs, and past implementations relevant to your current task. Call this with a brief task description to get the context you need.
 
 Scopes:
 - "relevant" (default): Semantic search for task-related items only

@@ -53,6 +53,12 @@ The extension bundles and auto-deploys an MCP server that exposes tools to your 
 ### Genesis Scan
 Auto-extract architecture, conventions, security patterns, and data flow from your codebase. Results feed directly into your project memory.
 
+### Smart Context Injection
+The extension auto-injects Contox instructions into all detected AI agent config files (`.cursorrules`, `.windsurfrules`, `.clinerules`, `.github/copilot-instructions.md`). MCP-capable agents get protocol instructions; non-MCP agents get file-based instructions. When available, a project brief from the brain summary is included.
+
+### Active File Context
+When you switch files, the extension searches your project memory for relevant items and writes a focused context file at `.contox/context.md`. Search uses composite scoring with file-overlap boosting for better relevance.
+
 ### Version Tracking
 The dashboard detects your installed extension version and shows an update banner when a new version is available.
 

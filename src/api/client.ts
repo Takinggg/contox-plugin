@@ -116,9 +116,6 @@ export class ContoxClient {
   private baseUrl: string;
   private apiKey: string | undefined;
 
-  /** Default timeout for API requests (30 seconds) */
-  private static readonly REQUEST_TIMEOUT_MS = 30_000;
-
   constructor(private readonly secrets: vscode.SecretStorage) {
     const config = vscode.workspace.getConfiguration('contox');
     this.baseUrl = config.get<string>('apiUrl', 'https://contox.dev');
@@ -144,6 +141,9 @@ export class ContoxClient {
   }
 
   /* ── Generic HTTP helper ────────────────────────────────────────────────── */
+
+  /** Default timeout for API requests (30 seconds) */
+  private static readonly REQUEST_TIMEOUT_MS = 30_000;
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
     const key = await this.getApiKey();
@@ -322,10 +322,19 @@ export class ContoxClient {
     projectId: string,
     query: string,
     limit = 10,
+    activeFiles?: string[],
   ): Promise<ApiResponse<SearchResponse>> {
-    return this.request<SearchResponse>(
-      `/v2/search?projectId=${encodeURIComponent(projectId)}&q=${encodeURIComponent(query)}&limit=${limit}&minSimilarity=0.5`,
-    );
+    const params = new URLSearchParams({
+      projectId,
+      q: query,
+      limit: String(limit),
+      minSimilarity: '0.5',
+    });
+    if (activeFiles && activeFiles.length > 0) {
+      params.set('activeFiles', activeFiles.join(','));
+      params.set('useCompositeScore', 'true');
+    }
+    return this.request<SearchResponse>(`/v2/search?${params.toString()}`);
   }
 
   /* ── V2 Sessions (for save monitoring) ───────────────────────────────── */
@@ -398,9 +407,9 @@ export class ContoxClient {
     options?: { skipEnrichment?: boolean },
   ): Promise<ApiResponse<IngestResponse>> {
     const eventPayload = JSON.stringify(event);
-    const source = detectIdeSource();
     const timestamp = new Date().toISOString();
     const nonce = crypto.randomBytes(16).toString('hex');
+    const source = detectIdeSource();
 
     // V2 extended signing: source + timestamp + projectId + event payload
     const signingPayload = `${source}\n${timestamp}\n${projectId}\n${eventPayload}`;

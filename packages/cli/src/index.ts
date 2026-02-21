@@ -17,6 +17,7 @@ import { approveCommand } from './commands/approve.js';
 import { collectCommand } from './commands/collect.js';
 import { exportCommand } from './commands/export.js';
 import { hygieneCommand } from './commands/hygiene.js';
+import { syncCommand } from './commands/sync.js';
 
 const program = new Command();
 
@@ -53,5 +54,8 @@ program.addCommand(exportCommand);
 
 // Hygiene
 program.addCommand(hygieneCommand);
+
+// Sync agent configs
+program.addCommand(syncCommand);
 
 program.parse();
