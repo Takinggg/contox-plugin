@@ -5,3 +5,4 @@ dist/
 *.tgz
 packages/cli/package-lock.json
 packages/mcp-server/package-lock.json
+dist/extension.js.map

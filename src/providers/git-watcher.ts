@@ -63,10 +63,6 @@ interface CaptureBuffer {
   totalPayloadSize: number;
 }
 
-/** Max retry attempts for failed flushes */
-const MAX_FLUSH_RETRIES = 3;
-/** Base delay for exponential backoff (ms) */
-const RETRY_BASE_DELAY_MS = 2000;
 
 export class GitWatcher implements vscode.Disposable {
   private projectId: string | null = null;
