@@ -18,13 +18,14 @@ import { collectCommand } from './commands/collect.js';
 import { exportCommand } from './commands/export.js';
 import { hygieneCommand } from './commands/hygiene.js';
 import { syncCommand } from './commands/sync.js';
+import { listFindingsCommand } from './commands/list-findings.js';
 
 const program = new Command();
 
 program
   .name('contox')
   .description('Contox CLI — manage AI contexts from the terminal')
-  .version('1.1.0');
+  .version('2.0.0');
 
 // Auth
 program.addCommand(loginCommand);
@@ -57,5 +58,8 @@ program.addCommand(hygieneCommand);
 
 // Sync agent configs
 program.addCommand(syncCommand);
+
+// Browse findings
+program.addCommand(listFindingsCommand);
 
 program.parse();

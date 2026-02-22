@@ -32,11 +32,6 @@ const MAX_DIFF_CHARS_PER_COMMIT = 3000;
 /** Timeout for git diff-tree command (ms) */
 const DIFF_TIMEOUT_MS = 5000;
 
-/** Max retry attempts for failed flushes */
-const MAX_FLUSH_RETRIES = 3;
-/** Base delay for exponential backoff (ms) */
-const RETRY_BASE_DELAY_MS = 2000;
-
 /** Files to exclude from diff capture (binary, locks, large generated files) */
 const DIFF_EXCLUDE_PATTERNS = [
   /package-lock\.json$/,
@@ -63,6 +58,10 @@ interface CaptureBuffer {
   totalPayloadSize: number;
 }
 
+/** Max retry attempts for failed flushes */
+const MAX_FLUSH_RETRIES = 3;
+/** Base delay for exponential backoff (ms) */
+const RETRY_BASE_DELAY_MS = 2000;
 
 export class GitWatcher implements vscode.Disposable {
   private projectId: string | null = null;

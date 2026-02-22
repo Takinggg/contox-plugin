@@ -60,8 +60,9 @@ function buildSection(hasMcp: boolean, brainSummary?: string): string {
     lines.push('### During Session');
     lines.push('- **BEFORE modifying any file**: call `contox_context_pack` with a brief task description');
     lines.push('  to get architecture decisions, conventions, and known issues relevant to your work');
-    lines.push('- Use `contox_search "topic"` to find specific memory items');
-    lines.push('- Use `contox_ask "question"` for natural-language questions about the project');
+    lines.push('- For browsing by category (security, architecture, bugs, etc.): use `contox_list_findings`');
+    lines.push('- For free-text semantic search: use `contox_search "topic"` (NOT for category browsing)');
+    lines.push('- For natural-language questions about the project: use `contox_ask "question"`');
     lines.push('- Use all Contox tools freely to read/write data');
     lines.push('');
     lines.push('### Saving — USER-INITIATED ONLY');

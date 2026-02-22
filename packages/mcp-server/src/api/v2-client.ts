@@ -501,7 +501,7 @@ export class V2Client {
   async ask(question: string): Promise<V2AskResponse> {
     return this.request<V2AskResponse>('/v2/ask', {
       method: 'POST',
-      body: JSON.stringify({ projectId: this.projectId, question }),
+      body: JSON.stringify({ projectId: this.projectId, question, mode: 'sync' }),
     });
   }
 

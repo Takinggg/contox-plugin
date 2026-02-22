@@ -47,7 +47,7 @@ import { syncAllAgentConfigs } from './lib/sync-agent-configs.js';
 
 const server = new McpServer({
   name: 'contox',
-  version: '1.1.1',
+  version: '2.0.0',
 });
 
 // Clients are initialized in main() via resolveProject() after server.connect().
@@ -342,7 +342,9 @@ server.tool(
 /* ── Tool 8: Search Contexts ──────────────────────────────────────────────── */
 server.tool(
   'contox_search',
-  `Search contexts by name, description, AND content. Use this to find specific code patterns, function signatures, API endpoints, component props, or any information stored in the project memory. Returns matching snippets with surrounding context.
+  `Search memory items using semantic (vector) similarity. Returns matching items ranked by relevance.
+
+IMPORTANT: For browsing items by category (security, architecture, bugs, etc.), use contox_list_findings instead. This tool is for free-text semantic queries only.
 
 Examples: "useAuth", "stripe", "password reset", "Button props", "GET /api/contexts"`,
   { query: z.string().describe('Search query — searches across all context content, names, and descriptions') },
@@ -368,6 +370,76 @@ Examples: "useAuth", "stripe", "password reset", "Button props", "GET /api/conte
         output.push('');
         output.push(r.facts);
         output.push('');
+      }
+
+      return {
+        content: [{ type: 'text', text: output.join('\n') }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Error: ${String(err)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+/* ── Tool 8b: List Findings ───────────────────────────────────────────────── */
+server.tool(
+  'contox_list_findings',
+  `Browse memory items by category (e.g. security, architecture, conventions, bugs, decisions, dependencies, frontend, backend).
+
+Use this to list findings by category. Do NOT use contox_search for category browsing.
+- For security findings: use category="security"
+- For architecture notes: use category="architecture"
+- For all items: omit category
+
+Returns items sorted by importance (highest first) with severity levels.`,
+  {
+    category: z.string().optional().describe('Category to filter by (e.g. "security", "architecture", "bugs", "conventions", "decisions", "dependencies", "frontend", "backend", "product")'),
+    status: z.string().optional().describe('Filter by status: "active" (default), "review", "archived", or "all"'),
+    limit: z.number().optional().describe('Max items to return (default 50, max 200)'),
+    offset: z.number().optional().describe('Pagination offset (default 0)'),
+  },
+  async (params) => {
+    try {
+      const schemaKey = params.category ? `root/${params.category}` : 'root/';
+      const limit = Math.min(params.limit ?? 50, 200);
+      const result = await v2Client.listItems({
+        schemaKey,
+        status: params.status ?? 'active',
+        limit,
+        offset: params.offset ?? 0,
+      });
+
+      if (result.items.length === 0) {
+        const catLabel = params.category ? ` in category "${params.category}"` : '';
+        return {
+          content: [{ type: 'text', text: `No findings found${catLabel} (total: ${String(result.total)})` }],
+        };
+      }
+
+      const output: string[] = [];
+      const catLabel = params.category ? ` "${params.category}"` : '';
+      output.push(`# Findings${catLabel} (${String(result.items.length)} of ${String(result.total)})\n`);
+
+      for (const item of result.items) {
+        const imp = item.importance ?? 0;
+        const severity = imp >= 0.9 ? 'CRITICAL' : imp >= 0.7 ? 'HIGH' : imp >= 0.5 ? 'MEDIUM' : 'LOW';
+        output.push(`### [${severity}] ${item.title}`);
+        output.push(`> confidence: ${item.confidence.toFixed(2)} | ${item.schemaKey}`);
+        if (item.files.length > 0) {
+          output.push(`> files: ${item.files.slice(0, 5).join(', ')}`);
+        }
+        output.push('');
+        if (item.facts) {
+          output.push(item.facts);
+        }
+        output.push('');
+      }
+
+      if (result.hasMore) {
+        output.push(`_...${String(result.total - result.items.length)} more items. Use offset=${String((params.offset ?? 0) + limit)} to see next page._`);
       }
 
       return {
